@@ -9,7 +9,7 @@
 ;; Usage:
 ;;   par specgen                                           # core overview
 ;;   par specgen clojure.string clojure.set                # specific namespaces
-;;   par specgen --write lang/ contrib/                    # write to lang/ and contrib/
+;;   par init                                              # write to lang/ and contrib/
 ;;   par specgen --stats                                   # stats only
 ;;   par specgen --coverage <dir> --host-data <host.edn>   # coverage analysis
 ;;   par coverage <ported-dir> <clojure-src>               # (par wires both)
@@ -25,7 +25,7 @@
                  clojure.set clojure.walk clojure.data clojure.datafy
                  clojure.edn clojure.math clojure.repl clojure.test
                  clojure.zip clojure.xml clojure.stacktrace clojure.template
-                 clojure.instant clojure.reflect clojure.inspector clojure.main
+                 clojure.instant clojure.reflect clojure.main
                  clojure.java.browse clojure.java.javadoc clojure.java.process
                  clojure.java.shell clojure.core.reducers clojure.core.protocols
                  clojure.core.server clojure.spec.alpha clojure.spec.gen.alpha
@@ -817,8 +817,7 @@
    "clojure.java.javadoc"
    "clojure.java.process"
    "clojure.java.shell"
-   ;; Inspection / reflection
-   "clojure.inspector"
+   ;; Reflection
    "clojure.main"
    "clojure.reflect"
    ;; Spec (ships separately but is Cognitect)
@@ -868,7 +867,7 @@
           dir (if is-contrib? contrib-dir lang-dir)]
       (if (= (:ns r) "clojure.core")
         ;; Core: single file with all categories
-        (let [path (str dir "/clojure.core.gen.edn")]
+        (let [path (str dir "/clojure.core.edn")]
           (io/make-parents path)
           (spit path (with-out-str
                        (println "[")
@@ -878,7 +877,7 @@
                        (println "]")))
           (println (format "  wrote %s (%d categories)" path (count specs))))
         ;; Other: one file per namespace
-        (let [fname (str (str/replace (:ns r) "." ".") ".gen.edn")
+        (let [fname (str (str/replace (:ns r) "." ".") ".edn")
               path (str dir "/" fname)
               spec (first specs)]
           (io/make-parents path)
@@ -892,8 +891,8 @@
 (defn write-host-specs
   "Write host interop and scaling test files."
   [lang-dir]
-  (let [host-path (str lang-dir "/host.gen.edn")
-        scale-path (str lang-dir "/scaling.gen.edn")]
+  (let [host-path (str lang-dir "/host.edn")
+        scale-path (str lang-dir "/scaling.edn")]
     (io/make-parents host-path)
     (spit host-path (with-out-str
                       (println "[")

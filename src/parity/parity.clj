@@ -28,7 +28,7 @@
          '[clojure.core.async :as async])
 
 (def base-dir (or (System/getProperty "parity.dir") "."))
-(def spec-dirs [(str base-dir "/spec") (str base-dir "/lang") (str base-dir "/contrib")])
+(def spec-dirs [(str base-dir "/lang") (str base-dir "/contrib")])
 (def results-dir (str base-dir "/results"))
 (def expressions-file (str results-dir "/expressions.edn"))
 (def reference-file (str results-dir "/reference.edn"))
@@ -117,6 +117,7 @@
 (defn do-expand []
   (let [expressions (expand-all-specs)
         by-ns (group-by :ns expressions)]
+    (io/make-parents expressions-file)
     (spit expressions-file (pr-str expressions))
     (println (str "Expanded " (count expressions) " test expressions from "
                   (count (spec-files)) " spec files → " expressions-file))
@@ -163,31 +164,42 @@
              :error-class "TimeoutException"})
         r))))
 
+(def ^:dynamic *capture-threads* (.availableProcessors (Runtime/getRuntime)))
+
 (defn do-capture []
   (let [expressions (do-expand)
         total (count expressions)
-        results (atom [])
+        n-threads *capture-threads*
         errors (atom 0)
-        start (System/currentTimeMillis)]
-    (println (str "Capturing " total " expressions on JVM..."))
-    (doseq [[i {:keys [it eval category] :as expr}] (map-indexed vector expressions)]
-      (when (zero? (mod (inc i) 500))
-        (let [elapsed (/ (- (System/currentTimeMillis) start) 1000.0)]
-          (println (format "  %d/%d (%.1fs)" (inc i) total elapsed))))
-      (let [result (safe-eval eval)
-            entry (merge {:expr eval :category category :it it} result)]
-        (swap! results conj entry)
-        (when (:error entry)
-          (swap! errors inc))))
-    (let [elapsed (/ (- (System/currentTimeMillis) start) 1000.0)]
+        done (atom 0)
+        start (System/currentTimeMillis)
+        ;; Partition into chunks for parallel eval
+        chunks (partition-all (max 1 (quot total n-threads)) expressions)
+        eval-chunk (fn [exprs]
+                     (mapv (fn [{:keys [it eval category] :as expr}]
+                             (let [result (safe-eval eval)
+                                   entry (merge {:expr eval :category category :it it} result)
+                                   n (swap! done inc)]
+                               (when (:error entry) (swap! errors inc))
+                               (when (zero? (mod n 1000))
+                                 (let [elapsed (/ (- (System/currentTimeMillis) start) 1000.0)]
+                                   (binding [*out* *err*]
+                                     (println (format "  %d/%d (%.1fs)" n total elapsed)))))
+                               entry))
+                           exprs))
+        futures (mapv #(future (eval-chunk %)) chunks)]
+    (println (format "Capturing %d expressions on JVM (%d threads)..." total n-threads))
+    (let [results (vec (mapcat deref futures))
+          elapsed (/ (- (System/currentTimeMillis) start) 1000.0)]
+      (io/make-parents reference-file)
       (spit reference-file (with-out-str
                              (println "[")
-                             (doseq [r @results]
+                             (doseq [r results]
                                (prn r))
                              (println "]")))
       (println (format "Captured %d results → %s (%.1fs)" total reference-file elapsed))
       (println (str "  " (- total @errors) " values, " @errors " errors"))
-      @results)))
+      results)))
 
 
 ;; =============================================================================

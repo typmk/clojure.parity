@@ -1,66 +1,105 @@
-# Parity
+# clojure.parity
 
-Clojure parity testing toolkit. Measures how close an alternative Clojure implementation is to JVM Clojure — using the JVM itself as the oracle.
+Clojure cross-compiler parity toolkit. Measures how close an alternative Clojure implementation is to JVM Clojure — using the JVM itself as the oracle.
 
-## How it works
+## The contract
 
-1. **Reflect** on live JVM namespaces to discover every public var, its arglists, and metadata
-2. **Generate** test expressions — parametric cross-products, edge cases, host interop, scaling
-3. **Capture** reference results by evaluating every expression on JVM Clojure
-4. **Test** an alternative implementation against the captured reference
+Parity generates the questions. You provide the answers.
 
-No hand-written expected values. The JVM is the spec.
+```
+parity produces:
+  expressions.edn  →  [{:expr "(+ 1 2)" :category :arithmetic :it "+ 1 2"} ...]
+  reference.edn    →  [{:expr "(+ 1 2)" :result "3" :type "java.lang.Long"} ...]
+
+you produce:
+  results.edn      →  [{:expr "(+ 1 2)" :result "3"} ...]
+                   or  [{:expr "(+ 1 2)" :error "ArityException: ..."} ...]
+```
+
+Your harness reads `expressions.edn`, evaluates each `:expr` in your runtime, and writes `results.edn`. How you eval is your problem — JVM, native binary, transpiled JS, whatever. Parity compares and reports.
 
 ## Quick start
 
 ```bash
-# Generate all specs (lang/ and contrib/)
-./par full
+# 1. Setup (once): reflect on JVM, generate specs, capture reference
+par init
 
-# Or step by step:
-./par specgen                      # generate spec files
-./par expand                       # expand parametric templates → expressions.edn
-./par capture                      # eval on JVM → reference.edn
-./par test                         # compare target impl against reference
+# 2. Ship expressions.edn to your target, eval each :expr, write results.edn
+
+# 3. Compare
+par test results.edn
 ```
 
-## Other tools
+## Commands
+
+```
+SETUP
+  par init                       Reflect → generate → capture reference
+
+TEST
+  par test                       Self-check (reference vs reference)
+  par test <results.edn>         Compare target impl against reference
+  par status                     Coverage dashboard
+
+DISCOVER
+  par reflect                    JVM host contract (what to implement)
+  par reflect --edn              Machine-readable output
+  par deps <src>                 Source dependency graph
+
+ANALYZE
+  par roadmap <src>              What to implement next (prioritized)
+  par coverage <ported> <src>    What's been ported vs what remains
+
+REWRITE
+  par port <in.clj> [out.cljc]  JVM → portable Clojure (experimental)
+```
+
+## Writing a harness
+
+A harness is ~20 lines in any language. Read EDN, eval, write EDN.
+
+Example (Clojure — your target impl):
+
+```clojure
+(let [exprs (edn/read-string (slurp "expressions.edn"))
+      results (mapv (fn [{:keys [expr]}]
+                      (try
+                        {:expr expr :result (pr-str (eval (read-string expr)))}
+                        (catch Exception e
+                          {:expr expr :error (str (class e) ": " (.getMessage e))})))
+                    exprs)]
+  (spit "results.edn" (pr-str results)))
+```
+
+Example (shell — any runtime with a REPL):
 
 ```bash
-./par discover                     # JVM host contract (reflection)
-./par deps <clojure-src>           # source dependency graph
-./par tree <clojure-src>           # merged dependency + implementation roadmap
-./par coverage <ported-dir> <src>  # host coverage analysis
-./par port <in.clj> [out.cljc]    # rewrite JVM → portable Clojure
-./par check <file...>              # bracket balance
+while IFS= read -r expr; do
+  result=$(echo "$expr" | your-clojure-repl 2>&1)
+  echo "{:expr \"$expr\" :result \"$result\"}"
+done < <(clojure -e '(doseq [e (edn/read-string (slurp "expressions.edn"))] (println (:expr e)))')
 ```
 
 ## Layout
 
 ```
-par                     CLI entry point (bash)
+par                     CLI entry point (bash → core.clj)
 deps.edn                Clojure project deps
-src/parity/             All Clojure source
-  specgen.clj           Spec generator (JVM reflection → .edn)
-  parity.clj            Test runner: expand, capture, test, stats
-  depgraph.clj          Source-level dependency graph
+src/parity/
+  core.clj              Entry point, all commands as top-level functions
+  specgen.clj           JVM reflection → test specs (.edn)
+  parity.clj            Expand, capture, test, status
+  depgraph.clj          Source dependency graph
   langmap.clj           JVM host contract discovery
   tree.clj              Merged dependency tree + roadmap
-  portabilize.clj       JVM → portable rewriter
+  portabilize.clj       JVM → portable rewriter (experimental)
+  gen_parity.clj        .cljc test suite generator (alternative format)
   utils.clj             Bracket checker, form printer
   color.clj             ANSI terminal helpers
-lang/                   Generated specs: Clojure runtime (shipped namespaces)
-contrib/                Generated specs: contrib libraries
+lang/                   Generated: Clojure runtime specs (gitignored)
+contrib/                Generated: contrib library specs (gitignored)
+results/                Generated: expressions.edn, reference.edn (gitignored)
 ```
-
-## Spec format
-
-Specs are `.edn` files with two forms:
-
-- **Explicit tests**: `{:it "name" :eval "(expr)"}`
-- **Parametric tests**: `{:describe "fn" :params {:x [...]} :template "(fn %x)"}`
-
-Parametric tests expand to the cross-product of all param axes. Expected values come from JVM capture, not from the spec.
 
 ## Requirements
 
