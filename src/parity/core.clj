@@ -1,18 +1,20 @@
 (ns parity.core
   "Clojure cross-compiler parity toolkit.
 
-  Five commands:
-    init     reflect -> generate -> capture -> verify
-    test     compare your results against reference
-    status   dashboard + what to do next
-    port     rewrite JVM -> portable Clojure
-    clear    remove generated files"
+  Six commands:
+    init       reflect -> generate -> capture -> verify
+    test       compare your results against reference
+    status     dashboard + what to do next
+    port       rewrite JVM -> portable Clojure
+    scaffold   generate protocol stubs from host contract
+    clear      remove generated files"
   (:require [clojure.string :as str]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
             [parity.generate :as gen]
             [parity.port :as port]
-            [parity.analyze :as analyze]))
+            [parity.analyze :as analyze]
+            [parity.scaffold :as scaffold]))
 
 (def results-dir "results")
 (def expressions-file (str results-dir "/expressions.edn"))
@@ -286,6 +288,8 @@
 
   par port <in.clj> [out.cljc]       Rewrite JVM -> portable Clojure
 
+  par scaffold [out.cljc]            Generate protocol stubs from host contract
+
   par clear                          Remove generated files
 "))
 
@@ -300,6 +304,7 @@
       "port"   (port/transform (first cmd-args)
                                (or (second cmd-args)
                                    (str/replace (first cmd-args) #"\.clj$" "_portable.cljc")))
+      "scaffold" (scaffold/scaffold (or (first cmd-args) "scaffold.cljc"))
       "clear"  (clear)
       (usage))
 ))

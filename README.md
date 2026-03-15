@@ -9,7 +9,8 @@ Parity testing for Clojure compilers and runtimes.
 3. Run `parity.cljc` on your implementation — a self-contained test against clojure.core.
 4. `par test` compares your answers across all namespaces — what passes, what's missing, what to build next.
 
-`par status` can analyse the Clojure dependency graph and host contract to prioritize what to build.
+`par scaffold` generates protocol stubs and type outlines from the host contract — your starting point.
+`par status` analyses the Clojure dependency graph and host contract to prioritize what to build.
 `par port` rewrites JVM Clojure source to portable Clojure.
 
 ## Quick start
@@ -51,6 +52,7 @@ par status --roadmap <clojure-src>    dependency graph + build order
 par status --reflect                  host contract (interfaces, methods, types)
 
 par port <in.clj> [out.cljc]         rewrite JVM interop to portable calls
+par scaffold [out.cljc]              generate protocol stubs from host contract
 par clear                             start over
 ```
 

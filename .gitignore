@@ -4,3 +4,4 @@ lang/
 contrib/
 results/
 parity.cljc
+scaffold.cljc
