@@ -113,13 +113,13 @@ A harness is ~20 lines. Read EDN, eval, write EDN.
 par                     CLI (bash -> core.clj)
 deps.edn                Clojure project deps
 src/parity/
-  core.clj              Entry point: init, test, status, clear
-  specgen.clj           Generate test specs from JVM reflection
-  runner.clj            Expand specs, capture reference, compare results
+  core.clj              Entry point: init, test, status, clear + compare logic
+  specgen.clj           JVM reflection -> test specs (.edn)
+  generate.clj          Expand specs, capture JVM reference
   analyze.clj           Coordinator: reflect, deps, roadmap
-  langmap.clj           JVM host contract (reflection)
-  depgraph.clj          Source dependency graph (rewrite-clj)
-  tree.clj              Merge deps + host -> prioritized roadmap
+    langmap.clj          JVM host contract (reflection)
+    depgraph.clj         Source dependency graph (rewrite-clj)
+    tree.clj             Merge deps + host -> roadmap
   portabilize.clj       JVM -> portable rewriter (experimental)
   color.clj             ANSI terminal helpers
 lang/                   Generated: shipped Clojure specs (gitignored)
