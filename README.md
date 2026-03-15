@@ -64,7 +64,6 @@ Everything runs through the `par` CLI:
 | `tree.clj` | Merged dependency tree and implementation roadmap |
 | `portabilize.clj` | Mechanical JVM → portable Clojure rewriter |
 | `utils.clj` | Bracket checker, form printer |
-| `bench_mem.c` | Allocator model microbenchmarks (C) |
 | `spec/` | Hand-written test specs for core namespaces |
 | `spec/gen/` | Auto-generated specs (~57 namespaces) |
 
