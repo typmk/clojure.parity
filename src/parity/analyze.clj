@@ -1,9 +1,12 @@
 (ns parity.analyze
-  "Analysis coordinator: reflect, deps, roadmap.
+  "Source analysis + JVM host contract + implementation roadmap.
 
-  Delegates to langmap (JVM reflection), depgraph (source analysis),
-  and tree (merge + prioritize). This file is the entry point —
-  langmap/depgraph/tree are implementation modules."
+  Three functions:
+    reflect  — JVM class reflection (what Clojure requires from the host)
+    deps     — source dependency graph (what .clj code uses)
+    roadmap  — merged priority tree (what to implement first)
+
+  Implementation modules live in analyze/ subfolder."
   (:require [clojure.string :as str]
             [clojure.java.io :as io]
             [clojure.edn :as edn]))
@@ -15,12 +18,12 @@
 (defn reflect
   "JVM host contract: what interfaces, methods, types Clojure requires."
   [& args]
-  (apply load-and-call "src/parity/langmap.clj" (or args [])))
+  (apply load-and-call "src/parity/analyze/langmap.clj" (or args [])))
 
 (defn deps
   "Source-level dependency graph from Clojure .clj files."
   [& args]
-  (apply load-and-call "src/parity/depgraph.clj" args))
+  (apply load-and-call "src/parity/analyze/depgraph.clj" args))
 
 (defn roadmap
   "What to implement next. Merges source deps + JVM host contract."
@@ -29,10 +32,10 @@
         tmp-host  (java.io.File/createTempFile "parity-host" ".edn")]
     (try
       (spit tmp-graph (with-out-str
-                        (load-and-call "src/parity/depgraph.clj" clojure-src "--edn")))
+                        (load-and-call "src/parity/analyze/depgraph.clj" clojure-src "--edn")))
       (spit tmp-host (with-out-str
-                       (load-and-call "src/parity/langmap.clj" "--edn")))
-      (apply load-and-call "src/parity/tree.clj"
+                       (load-and-call "src/parity/analyze/langmap.clj" "--edn")))
+      (apply load-and-call "src/parity/analyze/tree.clj"
              (str tmp-graph) (str tmp-host) args)
       (finally
         (.delete tmp-graph)

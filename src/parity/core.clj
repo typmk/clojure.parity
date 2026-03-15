@@ -127,7 +127,7 @@
                   (when (seq ns-args) (str ", " (count ns-args) " namespaces"))
                   ") ==="))
     (println)
-    (apply load-and-call "src/parity/specgen.clj" sg-args)
+    (apply load-and-call "src/parity/generate.clj" sg-args)
     (println)
     (load-and-call "src/parity/generate.clj" "capture")
     (println)
