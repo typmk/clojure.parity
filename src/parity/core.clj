@@ -275,6 +275,8 @@
     --roadmap <clojure-src>          include implementation priority order
     --reflect                        include JVM host contract
 
+  par port <in.clj> [out.cljc]       Rewrite JVM -> portable Clojure
+
   par clear                          Remove generated files
 "))
 
@@ -286,6 +288,7 @@
                  (test-impl (first cmd-args))
                  (do (println "Usage: par test <results.edn>") (System/exit 1)))
       "status" (apply status cmd-args)
+      "port"   (load-and-call "src/parity/portabilize.clj" (first cmd-args) (second cmd-args))
       "clear"  (clear)
       (usage))))
 
