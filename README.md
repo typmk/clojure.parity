@@ -1,28 +1,30 @@
 # clojure.parity
 
-Test how close your Clojure implementation is to the real thing.
+Parity testing for Clojure compilers and runtimes.
 
 ## How it works
 
-1. Parity asks the JVM thousands of questions: `(+ 1 2)`, `(map inc [1 2 3])`, etc.
-2. It records every answer: `3`, `(2 3 4)`, etc.
-3. You ask your implementation the same questions.
-4. Parity compares.
+1. Inspects every public function in JVM Clojure — arglists, type hints — and generates tests automatically.
+2. Runs them on the JVM and records every answer.
+3. Run `parity.cljc` on your implementation — a self-contained test against clojure.core.
+4. `par test` compares your answers across all namespaces — what passes, what's missing, what to build next.
 
-## Setup
+`par status` can analyse the Clojure dependency graph and host contract to prioritize what to build.
+`par port` rewrites JVM Clojure source to portable Clojure.
+
+## Quick start
 
 ```bash
-par init
+par init --lang          # generate tests + JVM reference (~2s)
+your-clojure parity.cljc # run against your implementation
 ```
 
-This generates `expressions.edn` (the questions) and `reference.edn` (the JVM's answers).
+## Detailed comparison
 
-## Test your implementation
-
-Write a small program that reads `expressions.edn`, evaluates each `:expr`, and writes `results.edn`:
+Write a program that evals each expression and writes `results.edn`:
 
 ```clojure
-(let [exprs (edn/read-string (slurp "expressions.edn"))
+(let [exprs (edn/read-string (slurp "results/expressions.edn"))
       results (mapv (fn [{:keys [expr]}]
                       (try {:expr expr :result (pr-str (eval (read-string expr)))}
                         (catch Exception e
@@ -31,41 +33,24 @@ Write a small program that reads `expressions.edn`, evaluates each `:expr`, and 
   (spit "results.edn" (pr-str results)))
 ```
 
-Then compare:
-
 ```bash
 par test results.edn
-```
-
-## See where you stand
-
-```bash
 par status
-```
-
-```
-Pass:    893/1489 (60.0%)
-Fail:    130
-Missing: 373
-
-Next wins:
-  clojure.core    128 remaining
-  clojure.string   26 remaining
 ```
 
 ## Options
 
 ```
-par init --quick         ~2k tests, 2 seconds
-par init --balanced      ~9k tests, 5 seconds (default)
-par init --thorough      ~40k tests, 25 seconds
+par init --quick         ~2k tests
+par init --balanced      ~9k tests (default)
+par init --thorough      ~40k tests
 par init --lang          shipped Clojure only (no contrib)
 par init --contrib       contrib libraries only
 
-par status --roadmap <clojure-src>    what to implement next
-par status --reflect                  what the JVM provides
+par status --roadmap <clojure-src>    dependency graph + build order
+par status --reflect                  host contract (interfaces, methods, types)
 
-par port <in.clj> [out.cljc]         rewrite JVM code to portable code
+par port <in.clj> [out.cljc]         rewrite JVM interop to portable calls
 par clear                             start over
 ```
 

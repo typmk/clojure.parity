@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: DeLaGuardo/setup-clojure@13.1
+        with:
+          cli: latest
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.m2/repository
+            ~/.gitlibs
+            ~/.cpcache
+          key: deps-${{ hashFiles('deps.edn') }}
+      - name: Self-test
+        run: |
+          clojure -M -m parity.core init --lang
+          clojure parity.cljc
+      - name: Deploy to Clojars
+        env:
+          CLOJARS_USERNAME: ${{ secrets.CLOJARS_USERNAME }}
+          CLOJARS_PASSWORD: ${{ secrets.CLOJARS_PASSWORD }}
+        run: clojure -T:build deploy
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create ${{ github.ref_name }} target/*.jar \
+            --title "${{ github.ref_name }}" \
+            --generate-notes
