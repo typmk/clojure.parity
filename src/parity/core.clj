@@ -132,8 +132,11 @@
     (load-and-call "src/parity/generate.clj" "capture")
     (println)
     (load-and-call "src/parity/generate.clj" "verify")
-    (println "\nReady. Ship expressions.edn to your target, eval each :expr,")
-    (println "write results/results.edn, then run: par test results/results.edn")))
+    (println)
+    (load-and-call "src/parity/generate.clj" "cljc" "parity.cljc")
+    (println "\nReady.")
+    (println "  Quick:    your-clojure parity.cljc")
+    (println "  Detailed: par test results/results.edn")))
 
 ;; =============================================================================
 ;; test

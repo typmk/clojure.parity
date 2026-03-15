@@ -2,3 +2,4 @@
 lang/
 contrib/
 results/
+parity.cljc
