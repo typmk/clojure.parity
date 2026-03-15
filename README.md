@@ -8,23 +8,40 @@ Parity generates the questions. You provide the answers.
 
 ```
 parity produces:
-  expressions.edn  →  [{:expr "(+ 1 2)" :category :arithmetic :it "+ 1 2"} ...]
-  reference.edn    →  [{:expr "(+ 1 2)" :result "3" :type "java.lang.Long"} ...]
+  expressions.edn  [{:expr "(+ 1 2)" :category :arithmetic :it "+ 1 2"} ...]
+  reference.edn    [{:expr "(+ 1 2)" :result "3" :type "java.lang.Long"} ...]
 
 you produce:
-  results.edn      →  [{:expr "(+ 1 2)" :result "3"} ...]
-                   or  [{:expr "(+ 1 2)" :error "ArityException: ..."} ...]
+  results.edn      [{:expr "(+ 1 2)" :result "3"} ...]
+                or [{:expr "(+ 1 2)" :error "ArityException: ..."} ...]
 ```
 
-Your harness reads `expressions.edn`, evaluates each `:expr` in your runtime, and writes `results.edn`. How you eval is your problem — JVM, native binary, transpiled JS, whatever. Parity compares and reports.
+Your harness reads `expressions.edn`, evaluates each `:expr` in your runtime, and writes `results.edn`. How you eval is your problem — JVM, native binary, transpiled JS, whatever.
+
+## Flow
+
+```
+par init          Generate reference from JVM
+      |
+      |           You write a harness, eval each :expr, produce results.edn
+      v
+par test          Compare your results against reference
+      |
+      v
+par status        See where you stand, what's next
+      |
+      |           Implement more, re-run harness
+      v
+par test          Repeat
+```
 
 ## Commands
 
 ```
-par init [options]                 Reflect → generate → capture → verify
-  --quick                          ~2k expressions (happy path)
-  --balanced                       ~9k expressions (default)
-  --thorough                       ~40k expressions (full cross-product)
+par init [options]                 Reflect -> generate -> capture -> verify
+  --quick                          ~2k expressions, ~2s
+  --balanced                       ~9k expressions, ~5s (default)
+  --thorough                       ~40k expressions, ~25s
   --lang                           shipped Clojure namespaces only
   --contrib                        contrib libraries only
   [ns...]                          specific namespaces
@@ -41,21 +58,43 @@ par clear                          Remove generated files
 ## Quick start
 
 ```bash
-# 1. Generate reference (once)
+# 1. Generate reference
 par init
 
-# 2. Write a harness for your target (see below)
+# 2. Write a harness for your target runtime (see below)
+#    Read expressions.edn, eval each :expr, write results.edn
 
 # 3. Compare
 par test results.edn
 
-# 4. See what's left
+# 4. See where you stand
 par status
+```
+
+## Example output
+
+```
+=== PARITY STATUS ===
+
+  Reference: 1489 expressions (1080 values, 409 expected errors)
+  Namespaces: 31 lang, 0 contrib
+
+  Results: 893/1489 pass (60.0%)
+           130 fail, 93 error, 373 missing
+
+  Per namespace:
+    clojure.core                              893/1021 (87%)
+    clojure.string                              0/  26 (0%)
+    clojure.set                                 0/  13 (0%)
+    ...
+
+  Next wins (most tests unlocked):
+    clojure.core                             128 remaining
 ```
 
 ## Writing a harness
 
-A harness is ~20 lines in any language. Read EDN, eval, write EDN.
+A harness is ~20 lines. Read EDN, eval, write EDN.
 
 ```clojure
 (let [exprs (edn/read-string (slurp "expressions.edn"))
@@ -71,18 +110,18 @@ A harness is ~20 lines in any language. Read EDN, eval, write EDN.
 ## Layout
 
 ```
-par                     CLI (bash → core.clj)
+par                     CLI (bash -> core.clj)
 deps.edn                Clojure project deps
 src/parity/
-  core.clj              Entry point — init, test, status, clear
-  specgen.clj           JVM reflection → test specs
+  core.clj              Entry point: init, test, status, clear
+  specgen.clj           JVM reflection -> test specs
   parity.clj            Expand, capture, compare
   depgraph.clj          Source dependency graph
   langmap.clj           JVM host contract discovery
-  tree.clj              Merged dependency tree + roadmap
-  portabilize.clj       JVM → portable rewriter
+  tree.clj              Dependency tree + implementation roadmap
+  portabilize.clj       JVM -> portable rewriter (REPL only)
   color.clj             ANSI terminal helpers
-lang/                   Generated: Clojure runtime specs (gitignored)
+lang/                   Generated: shipped Clojure specs (gitignored)
 contrib/                Generated: contrib library specs (gitignored)
 results/                Generated: expressions + reference (gitignored)
 ```
