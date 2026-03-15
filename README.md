@@ -1,130 +1,72 @@
 # clojure.parity
 
-Clojure cross-compiler parity toolkit. Measures how close an alternative Clojure implementation is to JVM Clojure — using the JVM itself as the oracle.
+Test how close your Clojure implementation is to the real thing.
 
-## The contract
+## How it works
 
-Parity generates the questions. You provide the answers.
+1. Parity asks the JVM thousands of questions: `(+ 1 2)`, `(map inc [1 2 3])`, etc.
+2. It records every answer: `3`, `(2 3 4)`, etc.
+3. You ask your implementation the same questions.
+4. Parity compares.
 
-```
-parity produces:
-  expressions.edn  [{:expr "(+ 1 2)" :category :arithmetic :it "+ 1 2"} ...]
-  reference.edn    [{:expr "(+ 1 2)" :result "3" :type "java.lang.Long"} ...]
-
-you produce:
-  results.edn      [{:expr "(+ 1 2)" :result "3"} ...]
-                or [{:expr "(+ 1 2)" :error "ArityException: ..."} ...]
-```
-
-Your harness reads `expressions.edn`, evaluates each `:expr` in your runtime, and writes `results.edn`. How you eval is your problem — JVM, native binary, transpiled JS, whatever.
-
-## Flow
-
-```
-par init          Generate reference from JVM
-      |
-      |           You write a harness, eval each :expr, produce results.edn
-      v
-par test          Compare your results against reference
-      |
-      v
-par status        See where you stand, what's next
-      |
-      |           Implement more, re-run harness
-      v
-par test          Repeat
-```
-
-## Commands
-
-```
-par init [options]                 Reflect -> generate -> capture -> verify
-  --quick                          ~2k expressions, ~2s
-  --balanced                       ~9k expressions, ~5s (default)
-  --thorough                       ~40k expressions, ~25s
-  --lang                           shipped Clojure namespaces only
-  --contrib                        contrib libraries only
-  [ns...]                          specific namespaces
-
-par test <results.edn>             Compare your implementation against reference
-
-par status                         Dashboard: coverage, pass/fail, what's next
-  --roadmap <clojure-src>          include implementation priority order
-  --reflect                        include JVM host contract
-
-par clear                          Remove generated files
-```
-
-## Quick start
+## Setup
 
 ```bash
-# 1. Generate reference
 par init
-
-# 2. Write a harness for your target runtime (see below)
-#    Read expressions.edn, eval each :expr, write results.edn
-
-# 3. Compare
-par test results.edn
-
-# 4. See where you stand
-par status
 ```
 
-## Example output
+This generates `expressions.edn` (the questions) and `reference.edn` (the JVM's answers).
 
-```
-=== PARITY STATUS ===
+## Test your implementation
 
-  Reference: 1489 expressions (1080 values, 409 expected errors)
-  Namespaces: 31 lang, 0 contrib
-
-  Results: 893/1489 pass (60.0%)
-           130 fail, 93 error, 373 missing
-
-  Per namespace:
-    clojure.core                              893/1021 (87%)
-    clojure.string                              0/  26 (0%)
-    clojure.set                                 0/  13 (0%)
-    ...
-
-  Next wins (most tests unlocked):
-    clojure.core                             128 remaining
-```
-
-## Writing a harness
-
-A harness is ~20 lines. Read EDN, eval, write EDN.
+Write a small program that reads `expressions.edn`, evaluates each `:expr`, and writes `results.edn`:
 
 ```clojure
 (let [exprs (edn/read-string (slurp "expressions.edn"))
       results (mapv (fn [{:keys [expr]}]
-                      (try
-                        {:expr expr :result (pr-str (eval (read-string expr)))}
+                      (try {:expr expr :result (pr-str (eval (read-string expr)))}
                         (catch Exception e
                           {:expr expr :error (str (class e) ": " (.getMessage e))})))
                     exprs)]
   (spit "results.edn" (pr-str results)))
 ```
 
-## Layout
+Then compare:
+
+```bash
+par test results.edn
+```
+
+## See where you stand
+
+```bash
+par status
+```
 
 ```
-par                     CLI (bash -> core.clj)
-deps.edn                Clojure project deps
-src/parity/
-  core.clj              Entry point: init, test, status, clear + compare logic
-  specgen.clj           JVM reflection -> test specs (.edn)
-  generate.clj          Expand specs, capture JVM reference
-  analyze.clj           Coordinator: reflect, deps, roadmap
-    roots.clj            Native primitives — JVM host contract (reflection)
-    branch.clj           Dependency chains — source graph (rewrite-clj)
-    tree.clj             The merge — prioritized implementation roadmap
-  port.clj              JVM -> portable rewriter (driven by roots reflection)
-  color.clj             ANSI terminal helpers
-lang/                   Generated: shipped Clojure specs (gitignored)
-contrib/                Generated: contrib library specs (gitignored)
-results/                Generated: expressions + reference (gitignored)
+Pass:    893/1489 (60.0%)
+Fail:    130
+Missing: 373
+
+Next wins:
+  clojure.core    128 remaining
+  clojure.string   26 remaining
+```
+
+## Options
+
+```
+par init --quick         ~2k tests, 2 seconds
+par init --balanced      ~9k tests, 5 seconds (default)
+par init --thorough      ~40k tests, 25 seconds
+par init --lang          shipped Clojure only (no contrib)
+par init --contrib       contrib libraries only
+
+par status --roadmap <clojure-src>    what to implement next
+par status --reflect                  what the JVM provides
+
+par port <in.clj> [out.cljc]         rewrite JVM code to portable code
+par clear                             start over
 ```
 
 ## Requirements
@@ -134,6 +76,4 @@ results/                Generated: expressions + reference (gitignored)
 
 ## License
 
-Copyright (c) Apollo Nicolson and contributors.
-
-Distributed under the Eclipse Public License 2.0.
+Copyright (c) Apollo Nicolson and contributors. EPL-2.0.
