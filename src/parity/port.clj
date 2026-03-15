@@ -31,20 +31,26 @@
 ;; Load host contract from roots
 ;; =============================================================================
 
-(defn load-host-contract []
+(defn load-host-contract
+  "Load the JVM host contract via reflection."
+  []
   (roots/collect-host))
 
 ;; =============================================================================
 ;; Naming conventions
 ;; =============================================================================
 
-(defn camel->kebab [s]
+(defn camel->kebab
+  "Convert camelCase to kebab-case."
+  [s]
   (-> s
       (str/replace #"([a-z])([A-Z])" "$1-$2")
       (str/replace #"_" "-")
       str/lower-case))
 
-(defn rt-replacement [method]
+(defn rt-replacement
+  "Derive portable replacement for a clojure.lang.RT method."
+  [method]
   (let [k (camel->kebab method)]
     (cond
       (str/ends-with? method "Cast") (str/replace k "-cast" "")
@@ -55,17 +61,23 @@
       (str/starts-with? k "is-") (str "p/-" (subs k 3) "?")
       :else (str "t/" k))))
 
-(defn numbers-replacement [method]
+(defn numbers-replacement
+  "Derive portable replacement for a clojure.lang.Numbers method."
+  [method]
   (let [k (camel->kebab method)]
     (cond
       (str/starts-with? method "unchecked") (str "unchecked-" (str/replace (subs k 10) #"^-" ""))
       (str/starts-with? k "is-") (str "h/-" (subs k 3) "?")
       :else (str "h/-" k))))
 
-(defn util-replacement [method]
+(defn util-replacement
+  "Derive portable replacement for a clojure.lang.Util method."
+  [method]
   (str "p/-" (camel->kebab method)))
 
-(defn static-replacement [class-str method]
+(defn static-replacement
+  "Derive portable replacement for a static method call on a clojure.lang class."
+  [class-str method]
   (cond
     (= class-str "clojure.lang.RT")      (rt-replacement method)
     (= class-str "clojure.lang.Numbers") (numbers-replacement method)
@@ -74,7 +86,9 @@
     (str "t/" (camel->kebab method))
     :else nil))
 
-(defn jvm-type? [s]
+(defn jvm-type?
+  "True if the string names a JVM-specific class (clojure.lang.* or java.*)."
+  [s]
   (or (str/starts-with? s "clojure.lang.")
       (str/starts-with? s "java.lang.")
       (str/starts-with? s "java.util.")
@@ -82,7 +96,9 @@
       (str/starts-with? s "java.net.")
       (str/starts-with? s "java.sql.")))
 
-(defn jvm-exception? [s]
+(defn jvm-exception?
+  "True if the string names a JVM exception class that maps to Exception."
+  [s]
   (#{"IllegalArgumentException" "UnsupportedOperationException"
      "ArithmeticException" "RuntimeException" "ClassCastException"
      "NullPointerException" "IndexOutOfBoundsException"
@@ -93,7 +109,9 @@
 ;; Generate tables from host contract
 ;; =============================================================================
 
-(defn generate-symbol-table [host]
+(defn generate-symbol-table
+  "Build symbol replacement table from host contract data."
+  [host]
   (let [entries (atom {})]
     ;; Bridge statics
     (doseq [[class-name {:keys [ops]}] (:bridge host)
@@ -115,13 +133,17 @@
         (swap! entries assoc fqn (symbol repl))))
     @entries))
 
-(defn generate-instance-table [host]
+(defn generate-instance-table
+  "Build instance? replacement table mapping JVM classes to satisfies? calls."
+  [host]
   (into {}
     (for [iface (:interfaces host)]
       [(symbol (str "clojure.lang." (:name iface)))
        (list 'satisfies? (symbol (str "p/" (:name iface))))])))
 
-(defn generate-dot-table [host class-key replacement-fn]
+(defn generate-dot-table
+  "Build dot-form replacement table for a bridge class (RT, Numbers, Util)."
+  [host class-key replacement-fn]
   (let [{:keys [ops]} (get (:bridge host) class-key)]
     (into {}
       (for [[method _] ops
@@ -139,16 +161,22 @@
 ;; rewrite-clj helpers
 ;; =============================================================================
 
-(defn sym-str [zloc]
+(defn sym-str
+  "Extract the symbol string from a zipper location, or nil."
+  [zloc]
   (when (= :token (z/tag zloc))
     (try (let [s (z/sexpr zloc)]
            (when (symbol? s) (str s)))
          (catch Exception _ nil))))
 
-(defn replace-with-str [zloc s]
+(defn replace-with-str
+  "Replace the node at zloc with the form parsed from string s."
+  [zloc s]
   (z/replace zloc (n/coerce (read-string s))))
 
-(defn children-strs [zloc]
+(defn children-strs
+  "Return a vector of string representations of non-whitespace children."
+  [zloc]
   (when (z/list? zloc)
     (when-let [child (z/down zloc)]
       (loop [c child acc []]
@@ -186,7 +214,9 @@
 ;; Node transformations
 ;; =============================================================================
 
-(defn transform-dot-form [zloc dot-tables]
+(defn transform-dot-form
+  "Transform a (. Class method args) form to its portable replacement."
+  [zloc dot-tables]
   (let [children (children-strs zloc)]
     (when (and (>= (count children) 3) (= "." (first children)))
       (let [class-str (second children)
@@ -219,7 +249,9 @@
               (when-let [f (get table method-name)] (f args))
               (derive-replacement method-name args))))))))
 
-(defn transform-instance-form [zloc instance-table]
+(defn transform-instance-form
+  "Transform an (instance? JvmClass x) form to (satisfies? Protocol x)."
+  [zloc instance-table]
   (let [children (children-strs zloc)]
     (when (and (>= (count children) 3) (= "instance?" (first children)))
       (let [class-sym (symbol (second children))
@@ -231,7 +263,9 @@
             (let [short (last (str/split (str class-sym) #"\."))]
               (format "(t/instance? t/%s %s)" short val-str))))))))
 
-(defn transform-catch-form [zloc]
+(defn transform-catch-form
+  "Transform (catch JvmException e ...) to (catch Exception e ...)."
+  [zloc]
   (let [children (children-strs zloc)]
     (when (and (>= (count children) 3) (= "catch" (first children)))
       (let [class-name (second children)]
@@ -239,12 +273,16 @@
           (let [rest-args (drop 2 children)]
             (format "(catch Exception %s)" (str/join " " rest-args))))))))
 
-(defn transform-import-form [zloc]
+(defn transform-import-form
+  "Replace (import ...) with a comment marker."
+  [zloc]
   (let [children (children-strs zloc)]
     (when (and (seq children) (= "import" (first children)))
       ";; import removed — using portable equivalents")))
 
-(defn transform-node [zloc symbol-table instance-table dot-tables]
+(defn transform-node
+  "Transform a single AST node: symbols, metadata, and list forms."
+  [zloc symbol-table instance-table dot-tables]
   (let [tag (z/tag zloc)]
     (cond
       ;; Symbol nodes
@@ -359,7 +397,9 @@
 ;; NS form transformation (structural)
 ;; =============================================================================
 
-(defn transform-ns-form [zloc]
+(defn transform-ns-form
+  "Rewrite an (ns ...) form to use portable protocol/host/type requires."
+  [zloc]
   (let [children (children-strs zloc)]
     (when (and (seq children) (= "ns" (first children)))
       (let [ns-name (second children)]
@@ -370,7 +410,9 @@
 ;; Main pipeline
 ;; =============================================================================
 
-(defn transform [input-file output-file]
+(defn transform
+  "Rewrite a JVM .clj file to portable .cljc using AST walking."
+  [input-file output-file]
   (println "portabilize: loading host contract from JVM reflection...")
   (let [host (load-host-contract)
         symbol-table (generate-symbol-table host)
@@ -433,7 +475,9 @@
 ;; Entry
 ;; =============================================================================
 
-(defn -main [& args]
+(defn -main
+  "CLI entry point."
+  [& args]
   (let [input (or (first args) "core.clj")
         output (or (second args)
                    (str/replace input #"\.clj$" "_portable.cljc"))]

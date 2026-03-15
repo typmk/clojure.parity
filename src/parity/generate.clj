@@ -30,7 +30,9 @@
     clojure.core.logic clojure.core.match clojure.core.unify])
 
 ;; Lazy — only load namespaces when needed (contrib is heavy)
-(defn load-namespaces! [scope]
+(defn load-namespaces!
+  "Require namespaces for the given scope (:lang, :contrib, or :all)."
+  [scope]
   (let [nss (case scope
               :lang shipped-namespaces
               :contrib contrib-namespaces
@@ -233,7 +235,9 @@
        ;; Opens browser / external programs
        '[javadoc browse-url open-url-in-browser open-url-in-swing]])))
 
-(defn classify-var [sym var-meta]
+(defn classify-var
+  "Classify a var as :testable or :skip based on name, arglists, and skip-list."
+  [sym var-meta]
   (let [nm (name sym)
         arglists (:arglists var-meta)]
     (cond
@@ -248,7 +252,9 @@
 ;; Test generation — intent-driven, not brute-force
 ;; =============================================================================
 
-(defn arg-name-str [arg]
+(defn arg-name-str
+  "Coerce an arglist element to a string name."
+  [arg]
   (cond (symbol? arg) (name arg) (vector? arg) "v" (map? arg) "m" :else "x"))
 
 (defn gen-tests
@@ -306,7 +312,9 @@
 ;; Namespace processing
 ;; =============================================================================
 
-(defn process-namespace [ns-name]
+(defn process-namespace
+  "Reflect on a namespace, generate tests for all testable public vars."
+  [ns-name]
   (try
     (require (symbol ns-name))
     (let [publics (sort-by key (ns-publics (symbol ns-name)))
@@ -323,7 +331,9 @@
 ;; Output — write spec .edn files
 ;; =============================================================================
 
-(defn write-specs [results lang-dir contrib-dir]
+(defn write-specs
+  "Write per-namespace spec .edn files to lang and contrib directories."
+  [results lang-dir contrib-dir]
   (let [contrib-set (set (map str contrib-namespaces))]
     (doseq [{:keys [ns tests]} results :when (seq tests)]
       (let [dir (if (contrib-set ns) contrib-dir lang-dir)
@@ -332,7 +342,9 @@
         (spit path (pr-str [{:category (keyword ns) :tests tests}]))
         (println (format "  %-45s %d tests" path (count tests)))))))
 
-(defn print-stats [results]
+(defn print-stats
+  "Print generation summary: namespaces, vars, tests, skipped."
+  [results]
   (let [total-tests (reduce + (map :generated results))
         total-vars (reduce + (map :total results))]
     (println (format "\n  %d namespaces, %d vars, %d tests generated\n"
@@ -353,21 +365,27 @@
 (def expressions-file (str results-dir "/expressions.edn"))
 (def reference-file (str results-dir "/reference.edn"))
 
-(defn spec-files []
+(defn spec-files
+  "Find all .edn spec files in lang/ and contrib/ directories."
+  []
   (->> spec-dirs
        (mapcat #(file-seq (io/file %)))
        (filter #(and (.isFile %) (str/ends-with? (.getName %) ".edn")))
        (sort-by #(.getName %))
        (map #(.getPath %))))
 
-(defn expand-spec-file [path]
+(defn expand-spec-file
+  "Expand a single spec .edn file into a flat list of test expressions."
+  [path]
   (let [ns-prefix (-> (io/file path) .getName (str/replace #"\.edn$" ""))
         specs (edn/read-string (slurp path))]
     (vec (mapcat (fn [{:keys [category tests]}]
                    (mapv #(assoc % :category category :ns ns-prefix) tests))
                  specs))))
 
-(defn do-expand []
+(defn do-expand
+  "Expand all spec files into a single expressions.edn."
+  []
   (let [files (spec-files)
         expressions (vec (mapcat expand-spec-file files))]
     (io/make-parents expressions-file)
@@ -382,7 +400,9 @@
 (def ^:dynamic *eval-timeout-ms* 1000)
 (def ^:dynamic *capture-threads* (.availableProcessors (Runtime/getRuntime)))
 
-(defn safe-eval [expr-str]
+(defn safe-eval
+  "Eval an expression string with timeout, returning {:result ...} or {:error ...}."
+  [expr-str]
   (let [result (promise)
         t (Thread.
             (fn []
@@ -402,7 +422,9 @@
         (do (.interrupt t) {:error "TimeoutException" :error-class "TimeoutException"})
         r))))
 
-(defn do-capture []
+(defn do-capture
+  "Parallel-eval all expressions on JVM, write reference.edn."
+  []
   (let [expressions (do-expand)
         total (count expressions)
         done (atom 0) errors (atom 0)
@@ -433,7 +455,9 @@
                      total elapsed (- total @errors) @errors))
     results))
 
-(defn do-verify []
+(defn do-verify
+  "Sanity-check that reference.edn is well-formed."
+  []
   (let [ref (edn/read-string (slurp reference-file))
         n (count ref) ok (count (remove :error ref))]
     (println (format "  %d expressions, %d values, %d errors — OK" n ok (- n ok)))))
@@ -474,7 +498,9 @@
 (println \"clojure.parity\\n\")
 ")
 
-(defn emit-cljc [output-path]
+(defn emit-cljc
+  "Generate a self-contained parity.cljc test file from reference data."
+  [output-path]
   (let [ref (edn/read-string (slurp reference-file))
         tests (filter portable? ref)
         by-cat (into (sorted-map) (filter (fn [[k _]] (core-cat? k)) (group-by :category tests)))
@@ -495,7 +521,9 @@
 ;; Main
 ;; =============================================================================
 
-(defn -main [& args]
+(defn -main
+  "CLI entry point."
+  [& args]
   (let [args (vec args)
         cmd (some #{"init" "capture" "expand" "verify" "cljc"} args)
         scope (cond (some #{"--lang"} args)    :lang

@@ -2,11 +2,11 @@
 ;; =============================================================================
 ;; tree.clj — complete dependency tree with host contract resolved
 ;;
-;; Merges depgraph (what Clojure source uses) with langmap (what JVM provides).
+;; Enriches source graph (branch) with host reflection data (roots).
 ;; For each function, shows: deps → host refs → native methods needed.
 ;;
-;; Input: two EDN files (produced by depgraph --edn and langmap --edn)
-;; Output: merged tree (human-readable or --edn)
+;; Input: two EDN files (produced by branch --edn and roots --edn)
+;; Output: enriched tree (human-readable or --edn)
 ;;
 ;; Usage:
 ;;   par tree <clojure-src>                    # human-readable
@@ -15,8 +15,8 @@
 ;; =============================================================================
 
 (ns parity.analyze.tree
-  "Merged dependency tree with host contract resolved.
-  Combines depgraph (what Clojure source uses) with langmap (what JVM provides)."
+  "Enriched dependency tree with host contract resolved.
+  Combines source graph (branch) with host reflection (roots)."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [parity.color :refer [bold dim green yellow cyan red white
@@ -224,7 +224,7 @@
 ;; =============================================================================
 
 (defn print-edn-tree
-  "Machine-readable merged tree."
+  "Machine-readable enriched tree as EDN."
   [graph host-data]
   (let [all-host-resolved (mapcat :host-resolved (vals graph))
         by-layer (group-by :layer (vals graph))]
@@ -243,12 +243,14 @@
 ;; =============================================================================
 
 (defn merge-and-enrich
-  "Merge graph data with host data. Returns enriched graph."
+  "Enrich graph nodes with resolved host contract info. Returns enriched graph."
   [graph-data host-data]
   (let [raw-graph (:graph graph-data)]
     (into (sorted-map) (map (partial enrich-node host-data)) raw-graph)))
 
-(defn -main [& args]
+(defn -main
+  "CLI entry point."
+  [& args]
   (let [graph-file (first (remove #(str/starts-with? % "--") args))
         host-file  (second (remove #(str/starts-with? % "--") args))
         edn-mode   (some #{"--edn"} args)

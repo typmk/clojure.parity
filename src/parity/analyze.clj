@@ -4,7 +4,7 @@
   Three functions:
     reflect  — JVM class reflection (what Clojure requires from the host)
     deps     — source dependency graph (what .clj code uses)
-    roadmap  — merged priority tree (what to implement first)"
+    roadmap  — enriched priority tree (what to implement first)"
   (:require [clojure.string :as str]
             [clojure.java.io :as io]
             [clojure.edn :as edn]
@@ -36,7 +36,7 @@
       {:classified classified :layers layers :file-results file-results})))
 
 (defn roadmap
-  "What to implement next. Merges source deps + JVM host contract."
+  "What to implement next. Enriches source deps with JVM host contract."
   [clojure-src & {:keys [edn? no-color?]}]
   (binding [*color* (not no-color?)]
     (let [{:keys [classified layers file-results]} (branch/analyze-source clojure-src)

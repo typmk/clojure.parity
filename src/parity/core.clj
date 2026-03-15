@@ -256,7 +256,9 @@
 ;; clear
 ;; =============================================================================
 
-(defn clear []
+(defn clear
+  "Remove all generated spec, reference, and result files."
+  []
   (doseq [dir ["lang" "contrib" "results"]]
     (let [f (io/file dir)]
       (when (.exists f)
@@ -268,7 +270,9 @@
 ;; CLI
 ;; =============================================================================
 
-(defn usage []
+(defn usage
+  "Print CLI usage information."
+  []
   (println "
   par — Clojure cross-compiler parity toolkit
 
@@ -293,7 +297,9 @@
   par clear                          Remove generated files
 "))
 
-(defn -main [& args]
+(defn -main
+  "CLI entry point."
+  [& args]
   (let [[cmd & cmd-args] args]
     (case cmd
       "init"   (apply init cmd-args)

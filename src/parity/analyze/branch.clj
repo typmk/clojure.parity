@@ -100,7 +100,9 @@
     (set? form)    (into #{} (mapcat collect-symbols) form)
     :else          #{}))
 
-(defn extract-body-symbols [form]
+(defn extract-body-symbols
+  "Extract all referenced symbols from a def form's body."
+  [form]
   (let [head-name (name (first form))
         parts (rest form)
         parts (rest parts)  ;; drop name
@@ -152,7 +154,9 @@
 
     :else nil))
 
-(defn host-ref? [sym-str] (some? (parse-host-ref sym-str)))
+(defn host-ref?
+  "True if the symbol string references a JVM host class or method."
+  [sym-str] (some? (parse-host-ref sym-str)))
 
 ;; =============================================================================
 ;; Process a single file
@@ -227,7 +231,9 @@
 ;; Layering
 ;; =============================================================================
 
-(defn assign-layers [graph]
+(defn assign-layers
+  "Compute dependency layers: layer 0 = no deps, layer N = max(dep layers) + 1."
+  [graph]
   (let [names (set (keys graph))
         layers (atom {})
         compute-layer
@@ -285,7 +291,9 @@
 ;; Classification
 ;; =============================================================================
 
-(defn classify [graph layers]
+(defn classify
+  "Classify each node as :foundation, :core, :derived, :host, or :leaf."
+  [graph layers]
   (let [dep-count-map
         (into {}
               (map (fn [[qn info]]
@@ -311,7 +319,9 @@
 ;; Output
 ;; =============================================================================
 
-(defn print-summary [classified layers file-results]
+(defn print-summary
+  "Print full dependency analysis: namespaces, top defs, host contract, layers."
+  [classified layers file-results]
   (let [by-class (group-by (comp :class val) classified)
         by-ns (group-by (comp :ns val) classified)
         max-layer (if (empty? (vals layers)) 0 (apply max (vals layers)))
@@ -426,7 +436,9 @@
     (println)
     (println (dim "  Use `par deps <src> --edn` for machine-readable output."))))
 
-(defn print-host-contract [classified]
+(defn print-host-contract
+  "Print the host contract: which Java classes the source code references."
+  [classified]
   (let [host-contract (extract-host-contract classified)
         {:keys [by-class]} host-contract
         lang-classes (into (sorted-map) (filter #(str/starts-with? (key %) "clojure.lang.") by-class))
@@ -460,7 +472,9 @@
                      (bold (str (count java-classes)))
                      (bold (str (+ (count lang-classes) (count java-classes))))))))
 
-(defn print-edn [classified layers file-results]
+(defn print-edn
+  "Print the full dependency graph as machine-readable EDN."
+  [classified layers file-results]
   (let [host-contract (extract-host-contract classified)
         max-layer (if (empty? (vals layers)) 0 (apply max (vals layers)))
         ;; Full graph: every node with its deps, host refs, classification
@@ -531,7 +545,9 @@
                                       by-pattern)})))]
     (prn results)))
 
-(defn print-dot [classified]
+(defn print-dot
+  "Print the dependency graph in Graphviz DOT format."
+  [classified]
   (println "digraph clojure {")
   (println "  rankdir=BT; node [shape=box fontsize=7];")
   (doseq [[qn info] classified]
@@ -570,7 +586,9 @@
           classified (classify graph layers)]
       {:classified classified :layers layers :file-results file-results})))
 
-(defn -main [& args]
+(defn -main
+  "CLI entry point."
+  [& args]
   (let [input (or (first (remove #(str/starts-with? % "--") args))
                   "src/clj/clojure/core.cljc")
         mode (cond

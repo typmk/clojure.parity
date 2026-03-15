@@ -43,11 +43,15 @@
      Murmur3 Reflector LockingTransaction BigInt Ratio
      TaggedLiteral ReaderConditional ArityException]})
 
-(defn resolve-class [short-name]
+(defn resolve-class
+  "Resolve a short class name to its clojure.lang.* Class, or nil."
+  [short-name]
   (try (Class/forName (str "clojure.lang." short-name))
        (catch ClassNotFoundException _ nil)))
 
-(defn public-methods [^Class cls]
+(defn public-methods
+  "Return sorted vec of public method descriptors for a class."
+  [^Class cls]
   (->> (.getDeclaredMethods cls)
        (filter #(Modifier/isPublic (.getModifiers ^Method %)))
        (map (fn [^Method m]
@@ -58,7 +62,9 @@
        (sort-by (juxt :name :arity))
        distinct vec))
 
-(defn class-entry [^Class cls]
+(defn class-entry
+  "Build a descriptor map for a class: name, interfaces, methods, statics."
+  [^Class cls]
   (let [ifaces (->> (.getInterfaces cls)
                     (map #(.getName %))
                     (filter #(str/starts-with? % "clojure.lang."))
@@ -78,7 +84,9 @@
      :statics (filterv :static? (public-methods cls))
      :instance (filterv (complement :static?) (public-methods cls))}))
 
-(defn collect-host []
+(defn collect-host
+  "Collect the full JVM host contract: specials, interfaces, concretes, bridge."
+  []
   (let [resolve-all (fn [names]
                       (->> names
                            (keep #(when-let [c (resolve-class (str %))]
@@ -107,7 +115,9 @@
 ;; Output
 ;; =============================================================================
 
-(defn print-langmap [host]
+(defn print-langmap
+  "Pretty-print the host contract with ANSI color, grouped by tier."
+  [host]
   (let [ifaces (:interfaces host)
         total-iface-methods (reduce + (map #(count (:methods %)) ifaces))
         bridge-unique (reduce + (map :unique (vals (:bridge host))))
@@ -232,7 +242,9 @@
 ;; Main
 ;; =============================================================================
 
-(defn -main [& args]
+(defn -main
+  "CLI entry point."
+  [& args]
   (binding [*out* *err*] (println "langmap: collecting host data via reflection..."))
   (let [host (collect-host)
         edn? (some #{"--edn"} args)

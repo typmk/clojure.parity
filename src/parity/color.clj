@@ -1,4 +1,5 @@
-(ns parity.color)
+(ns parity.color
+  "ANSI terminal color helpers.")
 
 (def ^:dynamic *color* true)
 
