@@ -114,12 +114,13 @@ par                     CLI (bash -> core.clj)
 deps.edn                Clojure project deps
 src/parity/
   core.clj              Entry point: init, test, status, clear
-  specgen.clj           JVM reflection -> test specs
-  parity.clj            Expand, capture, compare
-  depgraph.clj          Source dependency graph
-  langmap.clj           JVM host contract discovery
-  tree.clj              Dependency tree + implementation roadmap
-  portabilize.clj       JVM -> portable rewriter (REPL only)
+  specgen.clj           Generate test specs from JVM reflection
+  runner.clj            Expand specs, capture reference, compare results
+  analyze.clj           Coordinator: reflect, deps, roadmap
+  langmap.clj           JVM host contract (reflection)
+  depgraph.clj          Source dependency graph (rewrite-clj)
+  tree.clj              Merge deps + host -> prioritized roadmap
+  portabilize.clj       JVM -> portable rewriter (experimental)
   color.clj             ANSI terminal helpers
 lang/                   Generated: shipped Clojure specs (gitignored)
 contrib/                Generated: contrib library specs (gitignored)
