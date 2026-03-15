@@ -9,7 +9,7 @@
 ;; Usage:
 ;;   par specgen                                           # core overview
 ;;   par specgen clojure.string clojure.set                # specific namespaces
-;;   par specgen --write spec/gen/                         # write .gen.edn files
+;;   par specgen --write lang/ contrib/                    # write to lang/ and contrib/
 ;;   par specgen --stats                                   # stats only
 ;;   par specgen --coverage <dir> --host-data <host.edn>   # coverage analysis
 ;;   par coverage <ported-dir> <clojure-src>               # (par wires both)
@@ -59,23 +59,380 @@
 (def pools
   {:nil     ["nil"]
    :bool    ["true" "false"]
-   :int     ["0" "1" "-1" "42" "100"]
-   :float   ["0.0" "3.14" "-2.5"]
+   :int     ["0" "1" "-1" "42" "100" "Long/MAX_VALUE" "Long/MIN_VALUE"]
+   :float   ["0.0" "3.14" "-2.5" "Double/NaN" "Double/POSITIVE_INFINITY"]
    :num     ["0" "1" "-1" "42" "3.14"]
-   :string  ["\"\"" "\"hello\"" "\"hello world\"" "\"abc\""]
+   :string  ["\"\"" "\"hello\"" "\"hello world\"" "\"abc\"" "\"\""]
    :keyword [":a" ":b" ":foo" ":bar/baz"]
    :symbol  ["'foo" "'bar" "'baz/quux"]
-   :vec     ["[]" "[1]" "[1 2 3]" "[1 2 3 4 5]"]
-   :map     ["{}" "{:a 1}" "{:a 1 :b 2 :c 3}"]
+   :vec     ["[]" "[1]" "[1 2 3]" "[1 2 3 4 5]" "[nil]"]
+   :map     ["{}" "{:a 1}" "{:a 1 :b 2 :c 3}" "{nil nil}"]
    :set     ["#{}" "#{1 2 3}" "#{:a :b}" "#{{:a 1 :b 2} {:a 3 :b 4}}"]
-   :list    ["'()" "'(1 2 3)"]
-   :coll    ["[]" "[1 2 3]" "'(1 2 3)" "{:a 1 :b 2}" "#{1 2 3}"]
+   :list    ["'()" "'(1 2 3)" "'(nil)"]
+   :coll    ["nil" "[]" "[1 2 3]" "'(1 2 3)" "{:a 1 :b 2}" "#{1 2 3}"]
    :fn      ["inc" "dec" "identity" "str" "keyword"]
    :pred    ["even?" "odd?" "nil?" "pos?" "string?"]
    :regex   ["#\"\\\\d+\"" "#\"[a-z]+\"" "#\"hello\""]
-   :any     ["nil" "true" "0" "1" "-1" "42" "3.14"
-             "\"hello\"" ":a" "[]" "[1 2]" "{:a 1}" "#{1}"]
-   :xf      ["(map inc)" "(filter even?)" "(take 3)"]})
+   :any     ["nil" "true" "false" "0" "1" "-1" "42" "3.14"
+             "\"\"" "\"hello\"" ":a" "'foo" "\\a"
+             "[]" "[1 2]" "'()" "'(1 2)" "{}" "{:a 1}" "#{}" "#{1}"]
+   :xf      ["(map inc)" "(filter even?)" "(take 3)" "(dedupe)"]
+   :char    ["\\a" "\\space" "\\newline" "\\tab"]})
+
+;; =============================================================================
+;; Semantic categories for clojure.core vars
+;; =============================================================================
+
+(def core-categories
+  "Map of category keyword → set of var names (symbols)."
+  {:literals    #{'true? 'false? 'nil? 'some? 'boolean 'char 'byte 'short 'int 'long 'float 'double
+                  'bigint 'biginteger 'bigdec 'num 'rationalize}
+   :arithmetic  #{'+ '- '* '/ 'quot 'rem 'mod 'inc 'dec 'max 'min 'abs
+                  '+' '-' '*' 'inc' 'dec' 'unchecked-add 'unchecked-subtract
+                  'unchecked-multiply 'unchecked-inc 'unchecked-dec
+                  'unchecked-negate 'unchecked-remainder-int 'unchecked-divide-int}
+   :comparison  #{'= '== 'not= '< '> '<= '>= 'compare 'identical? 'zero? 'pos? 'neg?
+                  'pos-int? 'neg-int? 'nat-int? 'even? 'odd? 'number? 'integer? 'float?
+                  'decimal? 'ratio? 'rational? 'infinite? 'NaN?}
+   :bitops      #{'bit-and 'bit-or 'bit-xor 'bit-not 'bit-flip 'bit-set 'bit-clear
+                  'bit-test 'bit-shift-left 'bit-shift-right 'unsigned-bit-shift-right
+                  'bit-and-not}
+   :boolean-logic #{'and 'or 'not 'true? 'false? 'some? 'nil? 'boolean 'if-not 'when-not
+                    'not-every? 'not-any? 'not-empty}
+   :strings     #{'str 'subs 'name 'namespace 'symbol 'keyword 'char 'format 'pr-str 'prn-str
+                  'print-str 'with-out-str 'string? 'char? 'keyword? 'symbol? 'simple-keyword?
+                  'qualified-keyword? 'simple-symbol? 'qualified-symbol? 'simple-ident?
+                  'qualified-ident? 'ident?}
+   :regex       #{'re-find 're-matches 're-seq 're-groups 're-pattern 're-matcher}
+   :vectors     #{'vector 'vec 'vector-of 'subvec 'mapv 'filterv 'into-array 'to-array 'to-array-2d
+                  'aclone 'alength 'aget 'aset 'amap 'areduce 'make-array 'vector?}
+   :maps        #{'hash-map 'sorted-map 'sorted-map-by 'array-map 'zipmap 'frequencies 'group-by
+                  'assoc 'dissoc 'get 'get-in 'assoc-in 'update 'update-in 'select-keys
+                  'merge 'merge-with 'keys 'vals 'find 'contains? 'map? 'record?
+                  'associative? 'sorted?}
+   :sets        #{'set 'hash-set 'sorted-set 'sorted-set-by 'disj 'set?}
+   :lists       #{'list 'list* 'list? 'cons 'conj 'peek 'pop}
+   :sequences   #{'seq 'sequence 'first 'rest 'next 'second 'last 'butlast 'nth 'nthrest 'nthnext
+                  'take 'take-while 'take-last 'take-nth 'drop 'drop-while 'drop-last
+                  'map 'mapcat 'filter 'remove 'keep 'keep-indexed
+                  'reduce 'reduce-kv 'reductions 'apply 'some 'every?
+                  'concat 'flatten 'interleave 'interpose 'reverse 'sort 'sort-by
+                  'distinct 'dedupe 'partition 'partition-by 'partition-all
+                  'split-at 'split-with 'count 'empty 'empty? 'seq?
+                  'coll? 'sequential? 'counted? 'reversible? 'seqable?}
+   :lazy-sequences #{'lazy-seq 'iterate 'repeat 'repeatedly 'cycle 'range
+                     'doall 'dorun 'realized? 'line-seq 'tree-seq}
+   :transducers #{'transduce 'into 'eduction 'cat 'halt-when 'completing
+                  'unreduced 'reduced 'reduced? 'ensure-reduced}
+   :transients  #{'transient 'persistent! 'conj! 'assoc! 'dissoc! 'pop! 'disj!}
+   :functions   #{'fn? 'ifn? 'comp 'partial 'juxt 'complement 'constantly 'fnil
+                  'every-pred 'some-fn 'memoize 'trampoline 'apply}
+   :macros      #{'-> '->> 'as-> 'cond-> 'cond->> 'some-> 'some->> 'doto
+                  'when 'when-let 'when-first 'when-some 'if-let 'if-some
+                  'cond 'condp 'case 'while 'for 'doseq 'dotimes 'loop 'recur
+                  'let 'letfn 'fn 'defn 'defn- 'defmacro 'defmethod 'defmulti}
+   :metadata    #{'meta 'with-meta 'vary-meta 'alter-meta! 'reset-meta!}
+   :atoms       #{'atom 'deref 'reset! 'swap! 'compare-and-set! 'swap-vals! 'reset-vals!
+                  'add-watch 'remove-watch 'set-validator! 'get-validator}
+   :volatiles   #{'volatile! 'vreset! 'vswap!}
+   :refs        #{'ref 'deref 'dosync 'commute 'alter 'ref-set 'ensure 'ref-history-count
+                  'ref-min-history 'ref-max-history}
+   :agents      #{'agent 'send 'send-off 'send-via 'await 'await-for
+                  'agent-error 'restart-agent 'set-error-handler! 'set-error-mode!
+                  'error-handler 'error-mode 'release-pending-sends}
+   :concurrency #{'future 'future-call 'future? 'future-done? 'future-cancel 'future-cancelled?
+                  'deref 'promise 'deliver 'delay 'delay? 'force
+                  'locking 'pcalls 'pmap 'pvalues 'realized?}
+   :namespaces  #{'ns 'in-ns 'create-ns 'remove-ns 'find-ns 'all-ns 'the-ns
+                  'ns-name 'ns-publics 'ns-interns 'ns-refers 'ns-imports
+                  'ns-map 'ns-aliases 'ns-resolve 'resolve}
+   :type-system #{'type 'class 'supers 'bases 'ancestors 'descendants 'parents
+                  'isa? 'derive 'underive 'make-hierarchy
+                  'instance? 'satisfies? 'extends? 'extenders}
+   :protocols   #{'defprotocol 'extend-protocol 'extend-type 'extend 'reify}
+   :records-types #{'defrecord 'deftype 'defstruct 'struct-map 'struct 'create-struct
+                    'accessor}
+   :multimethods #{'defmulti 'defmethod 'prefer-method 'prefers 'methods
+                   'get-method 'remove-method 'remove-all-methods}
+   :special-forms #{'do 'if 'let 'quote 'var 'fn 'loop 'recur 'throw 'try
+                    'catch 'finally 'new 'set! 'monitor-enter 'monitor-exit}
+   :error-handling #{'try 'catch 'finally 'throw 'ex-info 'ex-message 'ex-data 'ex-cause
+                     'Throwable->map}
+   :printing    #{'pr 'prn 'print 'println 'pr-str 'prn-str 'print-str 'println-str
+                  'with-out-str 'newline 'flush 'printf 'format}
+   :coercion    #{'int 'long 'float 'double 'short 'byte 'char 'boolean
+                  'bigint 'biginteger 'bigdec 'num 'rationalize}
+   :sorted-collections #{'sorted-map 'sorted-map-by 'sorted-set 'sorted-set-by
+                         'sorted? 'rseq 'subseq 'rsubseq 'compare}
+   :threading   #{'-> '->> 'as-> 'cond-> 'cond->> 'some-> 'some->>}
+   :destructuring #{'let 'fn 'defn 'loop 'for 'doseq}
+   :dynamic-vars #{'binding 'with-bindings 'with-redefs 'thread-bound?
+                   'push-thread-bindings 'pop-thread-bindings 'get-thread-bindings
+                   'bound-fn 'bound-fn* 'bound?}
+   :arrays      #{'make-array 'into-array 'to-array 'to-array-2d
+                  'aclone 'alength 'aget 'aset 'amap 'areduce
+                  'boolean-array 'byte-array 'char-array 'short-array
+                  'int-array 'long-array 'float-array 'double-array 'object-array
+                  'booleans 'bytes 'chars 'shorts 'ints 'longs 'floats 'doubles}})
+
+(def var->category
+  "Reverse map: var symbol → category keyword."
+  (into {} (for [[cat vars] core-categories, v vars] [v cat])))
+
+;; =============================================================================
+;; Edge cases — per-function explicit tests (boundary values, nil, empty, etc.)
+;; =============================================================================
+
+(def edge-cases
+  "Map of qualified fn name → vector of {:it name :eval expr} tests."
+  {;; Arithmetic edge cases
+   "+"         [{:it "+ no args"          :eval "(+)"}
+                {:it "+ overflow"          :eval "(+ Long/MAX_VALUE 1)"}]
+   "-"         [{:it "- zero"             :eval "(- 0)"}
+                {:it "- underflow"         :eval "(- Long/MIN_VALUE 1)"}]
+   "*"         [{:it "* no args"          :eval "(*)"}
+                {:it "* by zero"           :eval "(* 42 0)"}]
+   "/"         [{:it "/ by 1"             :eval "(/ 42 1)"}
+                {:it "/ ratio"             :eval "(/ 1 3)"}
+                {:it "/ double"            :eval "(/ 1.0 3.0)"}]
+   "quot"      [{:it "quot neg"           :eval "(quot -7 2)"}]
+   "rem"       [{:it "rem neg"            :eval "(rem -7 2)"}]
+   "mod"       [{:it "mod neg"            :eval "(mod -7 2)"}]
+   "inc"       [{:it "inc Long/MAX_VALUE" :eval "(inc' Long/MAX_VALUE)"}]
+   "dec"       [{:it "dec Long/MIN_VALUE" :eval "(dec' Long/MIN_VALUE)"}]
+
+   ;; Comparison edge cases
+   "="         [{:it "= nil nil"          :eval "(= nil nil)"}
+                {:it "= cross-type"       :eval "(= 1 1.0)"}
+                {:it "= vector list"      :eval "(= [1 2 3] '(1 2 3))"}
+                {:it "= map order"        :eval "(= {:a 1 :b 2} {:b 2 :a 1})"}
+                {:it "= NaN"              :eval "(= Double/NaN Double/NaN)"}
+                {:it "= empty colls"      :eval "(= [] '() #{})"}]
+   "=="        [{:it "== int float"       :eval "(== 1 1.0)"}
+                {:it "== ratio"           :eval "(== 1/2 0.5)"}]
+   "compare"   [{:it "compare nil"        :eval "(compare nil nil)"}
+                {:it "compare strings"    :eval "(compare \"a\" \"b\")"}
+                {:it "compare vecs"       :eval "(compare [1 2] [1 3])"}]
+
+   ;; Collection edge cases
+   "conj"      [{:it "conj nil"           :eval "(conj nil 1)"}
+                {:it "conj vec"           :eval "(conj [1 2] 3)"}
+                {:it "conj map"           :eval "(conj {:a 1} [:b 2])"}
+                {:it "conj set"           :eval "(conj #{1 2} 3)"}
+                {:it "conj list"          :eval "(conj '(1 2) 3)"}]
+   "assoc"     [{:it "assoc nil"          :eval "(assoc nil :a 1)"}
+                {:it "assoc nested"       :eval "(assoc {} :a 1 :b 2 :c 3)"}]
+   "get"       [{:it "get nil"            :eval "(get nil :a)"}
+                {:it "get default"        :eval "(get {} :a :not-found)"}
+                {:it "get vector"         :eval "(get [1 2 3] 1)"}
+                {:it "get string"         :eval "(get \"hello\" 1)"}]
+   "dissoc"    [{:it "dissoc missing"     :eval "(dissoc {:a 1} :b)"}
+                {:it "dissoc nil"         :eval "(dissoc nil :a)"}]
+   "merge"     [{:it "merge nil"          :eval "(merge nil {:a 1})"}
+                {:it "merge overlap"      :eval "(merge {:a 1 :b 2} {:b 3 :c 4})"}]
+   "into"      [{:it "into nil"           :eval "(into nil [1 2])"}
+                {:it "into map"           :eval "(into {} [[:a 1] [:b 2]])"}
+                {:it "into sorted"        :eval "(into (sorted-set) [3 1 2])"}]
+
+   ;; Seq edge cases
+   "first"     [{:it "first nil"          :eval "(first nil)"}
+                {:it "first empty"        :eval "(first [])"}
+                {:it "first string"       :eval "(first \"hello\")"}
+                {:it "first map"          :eval "(first {:a 1 :b 2})"}]
+   "rest"      [{:it "rest nil"           :eval "(rest nil)"}
+                {:it "rest empty"         :eval "(rest [])"}]
+   "next"      [{:it "next nil"           :eval "(next nil)"}
+                {:it "next empty"         :eval "(next [])"}
+                {:it "next single"        :eval "(next [1])"}]
+   "nth"       [{:it "nth vector"         :eval "(nth [1 2 3] 1)"}
+                {:it "nth default"        :eval "(nth [1 2 3] 5 :not-found)"}
+                {:it "nth string"         :eval "(nth \"hello\" 1)"}]
+   "count"     [{:it "count nil"          :eval "(count nil)"}
+                {:it "count string"       :eval "(count \"hello\")"}
+                {:it "count map"          :eval "(count {:a 1 :b 2})"}]
+   "empty?"    [{:it "empty? nil"         :eval "(empty? nil)"}
+                {:it "empty? \"\""        :eval "(empty? \"\")"}
+                {:it "empty? []"          :eval "(empty? [])"}]
+   "seq"       [{:it "seq nil"            :eval "(seq nil)"}
+                {:it "seq empty"          :eval "(seq [])"}
+                {:it "seq string"         :eval "(seq \"abc\")"}
+                {:it "seq map"            :eval "(seq {:a 1})"}]
+   "map"       [{:it "map nil"            :eval "(map inc nil)"}
+                {:it "map empty"          :eval "(doall (map inc []))"}
+                {:it "map multi"          :eval "(doall (map + [1 2] [3 4]))"}]
+   "filter"    [{:it "filter nil"         :eval "(filter even? nil)"}
+                {:it "filter none"        :eval "(doall (filter even? [1 3 5]))"}]
+   "reduce"    [{:it "reduce empty"       :eval "(reduce + [])"}
+                {:it "reduce init"        :eval "(reduce + 10 [1 2 3])"}
+                {:it "reduce short"       :eval "(reduce (fn [a x] (if (> a 5) (reduced a) (+ a x))) 0 (range 100))"}]
+   "apply"     [{:it "apply vector"       :eval "(apply vector 1 2 [3 4])"}
+                {:it "apply str"          :eval "(apply str [\\a \\b \\c])"}]
+   "sort"      [{:it "sort empty"         :eval "(sort [])"}
+                {:it "sort reverse"       :eval "(sort > [3 1 2])"}
+                {:it "sort strings"       :eval "(sort [\"b\" \"a\" \"c\"])"}]
+   "concat"    [{:it "concat nil"         :eval "(doall (concat nil [1]))"}
+                {:it "concat empty"       :eval "(doall (concat [] [] []))"}]
+   "flatten"   [{:it "flatten deep"       :eval "(flatten [[1 [2]] [3 [4 [5]]]])"}
+                {:it "flatten nil"        :eval "(flatten nil)"}]
+   "range"     [{:it "range 0"            :eval "(range 0)"}
+                {:it "range step"         :eval "(range 0 10 3)"}
+                {:it "range neg"          :eval "(range 5 0 -1)"}]
+   "partition"  [{:it "partition pad"     :eval "(partition 3 3 [:a] (range 10))"}
+                 {:it "partition step"    :eval "(partition 2 1 [1 2 3 4])"}]
+   "frequencies" [{:it "frequencies"      :eval "(frequencies [1 1 2 3 3 3])"}]
+   "group-by"  [{:it "group-by"           :eval "(group-by even? [1 2 3 4 5])"}]
+   "zipmap"    [{:it "zipmap uneven"      :eval "(zipmap [:a :b :c] [1 2])"}]
+
+   ;; String edge cases
+   "str"       [{:it "str nil"            :eval "(str nil)"}
+                {:it "str multi"          :eval "(str 1 :a \"b\" nil)"}
+                {:it "str no args"        :eval "(str)"}]
+   "subs"      [{:it "subs range"         :eval "(subs \"hello\" 1 3)"}]
+   "name"      [{:it "name keyword"       :eval "(name :foo/bar)"}
+                {:it "name string"        :eval "(name \"hello\")"}]
+   "namespace" [{:it "namespace plain"    :eval "(namespace :foo)"}
+                {:it "namespace qual"     :eval "(namespace :foo/bar)"}]
+
+   ;; Function composition edge cases
+   "comp"      [{:it "comp no args"       :eval "((comp) 42)"}
+                {:it "comp single"        :eval "((comp inc) 1)"}
+                {:it "comp multi"         :eval "((comp str inc) 1)"}]
+   "partial"   [{:it "partial"            :eval "((partial + 10) 5)"}
+                {:it "partial multi"      :eval "((partial map inc) [1 2 3])"}]
+   "juxt"      [{:it "juxt"              :eval "((juxt first last count) [1 2 3])"}]
+   "complement" [{:it "complement"       :eval "((complement even?) 3)"}]
+   "fnil"      [{:it "fnil nil"           :eval "((fnil inc 0) nil)"}
+                {:it "fnil value"         :eval "((fnil inc 0) 5)"}]
+   "every-pred" [{:it "every-pred true"  :eval "((every-pred pos? even?) 2)"}
+                 {:it "every-pred false"  :eval "((every-pred pos? even?) 3)"}]
+   "some-fn"   [{:it "some-fn first"     :eval "((some-fn :a :b) {:a 1})"}
+                {:it "some-fn none"       :eval "((some-fn :a :b) {:c 3})"}]
+   "memoize"   [{:it "memoize"           :eval "(let [f (memoize +)] [(f 1 2) (f 1 2)])"}]
+   "trampoline" [{:it "trampoline"       :eval "(trampoline (fn f [n] (if (zero? n) :done #(f (dec n)))) 5)"}]
+
+   ;; Transient edge cases
+   "transient"  [{:it "transient vec"    :eval "(persistent! (conj! (transient [1 2]) 3))"}
+                 {:it "transient map"    :eval "(persistent! (assoc! (transient {:a 1}) :b 2))"}]
+
+   ;; Metadata edge cases
+   "meta"      [{:it "meta nil"           :eval "(meta nil)"}
+                {:it "meta fn"            :eval "(some? (meta #'inc))"}]
+   "with-meta" [{:it "with-meta"          :eval "(meta (with-meta [1 2] {:tag :x}))"}]
+
+   ;; Error handling
+   "ex-info"   [{:it "ex-info"            :eval "(ex-data (ex-info \"boom\" {:code 42}))"}
+                {:it "ex-message"         :eval "(ex-message (ex-info \"boom\" {}))"}]
+
+   ;; Lazy seq edge cases
+   "take"      [{:it "take neg"           :eval "(take -1 [1 2 3])"}
+                {:it "take more"          :eval "(take 10 [1 2])"}]
+   "drop"      [{:it "drop neg"           :eval "(drop -1 [1 2 3])"}
+                {:it "drop more"          :eval "(drop 10 [1 2])"}]
+   "repeat"    [{:it "repeat n"           :eval "(repeat 3 :x)"}]
+   "iterate"   [{:it "iterate"            :eval "(take 5 (iterate #(* 2 %) 1))"}]
+   "cycle"     [{:it "cycle"              :eval "(take 6 (cycle [1 2 3]))"}]
+
+   ;; Destructuring / let
+   "let"       [{:it "let sequential"     :eval "(let [[a b & r] [1 2 3 4]] [a b r])"}
+                {:it "let map"            :eval "(let [{:keys [a b]} {:a 1 :b 2}] [a b])"}
+                {:it "let defaults"       :eval "(let [{:keys [a] :or {a 42}} {}] a)"}]
+
+   ;; Threading
+   "->"        [{:it "-> chain"           :eval "(-> 1 inc (* 2) str)"}]
+   "->>"       [{:it "->> chain"          :eval "(->> (range 10) (filter even?) (map inc) vec)"}]
+   "as->"      [{:it "as-> mixed"         :eval "(as-> [1 2 3] x (conj x 4) (count x))"}]
+   "cond->"    [{:it "cond-> true"        :eval "(cond-> 1 true inc false (* 10))"}]
+   "some->"    [{:it "some-> nil"         :eval "(some-> nil inc)"}
+                {:it "some-> val"         :eval "(some-> {:a 1} :a inc)"}]
+   "some->>"   [{:it "some->> nil"        :eval "(some->> nil (map inc))"}]})
+
+;; =============================================================================
+;; Host interop tests (JVM-specific)
+;; =============================================================================
+
+(def host-interop-tests
+  [{:category :java-constructors
+    :tests
+    [{:it "new Object"              :eval "(some? (Object.))"}
+     {:it "new String"              :eval "(String. \"hello\")"}
+     {:it "new ArrayList"           :eval "(str (java.util.ArrayList. [1 2 3]))"}
+     {:it "new HashMap"             :eval "(.size (java.util.HashMap. {:a 1 :b 2}))"}]}
+
+   {:category :java-instance-methods
+    :tests
+    [{:it ".length"                 :eval "(.length \"hello\")"}
+     {:it ".toUpperCase"            :eval "(.toUpperCase \"hello\")"}
+     {:it ".charAt"                 :eval "(.charAt \"hello\" 0)"}
+     {:it ".contains"               :eval "(.contains \"hello\" \"ell\")"}
+     {:it ".substring"              :eval "(.substring \"hello\" 1 4)"}
+     {:it ".toString"               :eval "(.toString 42)"}]}
+
+   {:category :java-static-methods
+    :tests
+    [{:it "Math/abs"                :eval "(Math/abs -42)"}
+     {:it "Math/max"                :eval "(Math/max 3 7)"}
+     {:it "Math/min"                :eval "(Math/min 3 7)"}
+     {:it "Math/pow"                :eval "(long (Math/pow 2 10))"}
+     {:it "Math/sqrt"               :eval "(Math/sqrt 4.0)"}
+     {:it "Integer/parseInt"        :eval "(Integer/parseInt \"42\")"}
+     {:it "Long/parseLong"          :eval "(Long/parseLong \"1000000\")"}
+     {:it "String/valueOf"          :eval "(String/valueOf 42)"}
+     {:it "String/format"           :eval "(String/format \"%s=%d\" (into-array Object [\"x\" 1]))"}]}
+
+   {:category :java-static-fields
+    :tests
+    [{:it "Integer/MAX_VALUE"       :eval "Integer/MAX_VALUE"}
+     {:it "Long/MAX_VALUE"          :eval "Long/MAX_VALUE"}
+     {:it "Double/NaN"              :eval "(Double/isNaN Double/NaN)"}
+     {:it "Math/PI"                 :eval "(< (abs (- Math/PI 3.14159)) 0.001)"}
+     {:it "Boolean/TRUE"            :eval "Boolean/TRUE"}]}
+
+   {:category :java-interop-forms
+    :tests
+    [{:it "doto"                    :eval "(str (doto (java.util.ArrayList.) (.add 1) (.add 2)))"}
+     {:it ".. chain"                :eval "(.. \"hello\" toUpperCase (substring 0 3))"}
+     {:it "instance? String"        :eval "(instance? String \"hello\")"}
+     {:it "instance? Long"          :eval "(instance? Long 42)"}
+     {:it "class of string"         :eval "(str (class \"hello\"))"}
+     {:it "class of int"            :eval "(str (class 42))"}
+     {:it "bean"                    :eval "(contains? (bean (java.util.Date.)) :time)"}]}
+
+   {:category :java-collections-interop
+    :tests
+    [{:it "java list to vec"        :eval "(vec (java.util.Arrays/asList (into-array [1 2 3])))"}
+     {:it "iterate java map"        :eval "(count (java.util.HashMap. {:a 1 :b 2 :c 3}))"}
+     {:it "System/getenv"           :eval "(string? (or (System/getenv \"PATH\") \"\"))"}
+     {:it "System/currentTimeMillis" :eval "(> (System/currentTimeMillis) 0)"}]}
+
+   {:category :java-type-identity
+    :parametric
+    [{:describe "type identity"
+      :params {:val ["42" "3.14" "\"hello\"" "true" "\\a" ":a" "[]" "{}" "'()" "#{}"]
+               }
+      :template "(str (class %val))"}]}])
+
+;; =============================================================================
+;; Scaling tests (complexity verification)
+;; =============================================================================
+
+(def scaling-tests
+  [{:category :scaling-O1
+    :tests
+    [{:it "vector-nth-O1"
+      :eval "(let [v (vec (range 100000))] (nth v (quot (count v) 2)))"
+      :scaling true :sizes [100 1000 10000 100000] :expected-complexity :O1}
+     {:it "vector-conj-O1"
+      :eval "(let [v (vec (range 100000))] (conj v :x))"
+      :scaling true :sizes [1000 10000 100000 1000000] :expected-complexity :O1}
+     {:it "map-get-O1"
+      :eval "(let [m (into {} (map (fn [i] [i i]) (range 100000)))] (get m (quot (count m) 2)))"
+      :scaling true :sizes [100 1000 10000 100000] :expected-complexity :O1}
+     {:it "map-assoc-O1"
+      :eval "(let [m (into {} (map (fn [i] [i i]) (range 100000)))] (assoc m :new :value))"
+      :scaling true :sizes [100 1000 10000 100000] :expected-complexity :O1}
+     {:it "set-contains-O1"
+      :eval "(let [s (set (range 100000))] (contains? s (quot (count s) 2)))"
+      :scaling true :sizes [100 1000 10000 100000] :expected-complexity :O1}]}])
 
 ;; =============================================================================
 ;; Arg name → pool heuristics
@@ -107,6 +464,7 @@
       (#{"t" "tag"} s)                  (:keyword pools)
       (#{"xrel" "yrel" "xset"
          "s1" "s2" "set1" "set2"} s)    (:set pools)
+      (#{"ch" "c"} s)                   (:char pools)
 
       ;; Pattern matches
       (str/ends-with? s "map")          (:map pools)
@@ -303,6 +661,14 @@
      :params {:val (:any pools)}
      :template (str "(" qualified " %val)")}))
 
+(defn get-edge-cases
+  "Get edge case tests for a var, if any exist."
+  [sym ns-name]
+  (let [qualified (if (= ns-name "clojure.core")
+                    (name sym)
+                    (str ns-name "/" (name sym)))]
+    (get edge-cases qualified)))
+
 ;; =============================================================================
 ;; Namespace processing
 ;; =============================================================================
@@ -336,6 +702,12 @@
           nullaries (vec (keep (fn [{:keys [sym vmeta]}]
                                  (gen-nullary sym vmeta ns-name))
                                active))
+          ;; Edge case tests
+          edge-case-tests (vec (mapcat (fn [{:keys [sym]}]
+                                         (get-edge-cases sym ns-name))
+                                       active))
+          ;; All explicit tests: nullary + edge cases
+          all-tests (vec (concat nullaries edge-case-tests))
           generated (count (filter some? parametrics))]
       {:ns ns-name
        :total (count publics)
@@ -343,19 +715,35 @@
        :skipped (count skipped-vars)
        :skipped-vars (vec skipped-vars)
        :parametric (vec (filter some? parametrics))
-       :tests nullaries})
+       :tests all-tests})
     (catch Exception e
       {:ns ns-name :error (str e) :total 0 :generated 0 :skipped 0
        :skipped-vars [] :parametric [] :tests []})))
 
 
 (defn ->spec-edn
-  "Convert processed namespace to parity-compatible spec format."
+  "Convert processed namespace to parity-compatible spec format.
+   Uses semantic categories for clojure.core, flat category for others."
   [{:keys [ns parametric tests]}]
-  (let [cat (keyword (str (str/replace ns "." ".") ".functions"))]
-    (cond-> {:category cat}
-      (seq tests)      (assoc :tests (vec tests))
-      (seq parametric) (assoc :parametric (vec parametric)))))
+  (if (= ns "clojure.core")
+    ;; Group core vars by semantic category
+    (let [categorized (group-by (fn [entry]
+                                  (let [sym (symbol (or (:describe entry) (:it entry) ""))]
+                                    (get var->category sym :uncategorized)))
+                                (concat parametric tests))
+          specs (for [[cat entries] (sort-by key categorized)
+                      :when (seq entries)]
+                  (let [params (filter :params entries)
+                        explicit (remove :params entries)]
+                    (cond-> {:category cat}
+                      (seq explicit) (assoc :tests (vec explicit))
+                      (seq params)   (assoc :parametric (vec params)))))]
+      specs)
+    ;; Other namespaces: single category
+    (let [cat (keyword (str (str/replace ns "." ".") ".functions"))]
+      [(cond-> {:category cat}
+         (seq tests)      (assoc :tests (vec tests))
+         (seq parametric) (assoc :parametric (vec parametric)))])))
 
 ;; =============================================================================
 ;; Output
@@ -398,22 +786,64 @@
 (defn print-spec [results]
   (println "[")
   (doseq [r results :when (or (seq (:tests r)) (seq (:parametric r)))]
-    (let [spec (->spec-edn r)]
-      (clojure.pprint/pprint spec)
-      (println)))
+    (let [specs (->spec-edn r)]
+      (doseq [spec specs]
+        (clojure.pprint/pprint spec)
+        (println))))
   (println "]"))
 
-(defn write-specs [results dir]
+(defn write-specs
+  "Write spec files. For clojure.core, produces multiple category files.
+   lang-dir is for shipped namespaces, contrib-dir for contrib."
+  [results lang-dir contrib-dir]
   (doseq [r results :when (or (seq (:tests r)) (seq (:parametric r)))]
-    (let [fname (str (str/replace (:ns r) "." ".") ".gen.edn")
-          path (str dir "/" fname)
-          spec (->spec-edn r)]
-      (io/make-parents path)
-      (spit path (with-out-str
-                   (println "[")
-                   (clojure.pprint/pprint spec)
-                   (println "]")))
-      (println (format "  wrote %s (%d groups)" path (+ (count (:tests r)) (count (:parametric r))))))))
+    (let [specs (->spec-edn r)
+          is-contrib? (contains? (set contrib-namespaces) (:ns r))
+          dir (if is-contrib? contrib-dir lang-dir)]
+      (if (= (:ns r) "clojure.core")
+        ;; Core: single file with all categories
+        (let [path (str dir "/clojure.core.gen.edn")]
+          (io/make-parents path)
+          (spit path (with-out-str
+                       (println "[")
+                       (doseq [spec specs]
+                         (clojure.pprint/pprint spec)
+                         (println))
+                       (println "]")))
+          (println (format "  wrote %s (%d categories)" path (count specs))))
+        ;; Other: one file per namespace
+        (let [fname (str (str/replace (:ns r) "." ".") ".gen.edn")
+              path (str dir "/" fname)
+              spec (first specs)]
+          (io/make-parents path)
+          (spit path (with-out-str
+                       (println "[")
+                       (clojure.pprint/pprint spec)
+                       (println "]")))
+          (println (format "  wrote %s (%d groups)"
+                           path (+ (count (:tests r)) (count (:parametric r))))))))))
+
+(defn write-host-specs
+  "Write host interop and scaling test files."
+  [lang-dir]
+  (let [host-path (str lang-dir "/host.gen.edn")
+        scale-path (str lang-dir "/scaling.gen.edn")]
+    (io/make-parents host-path)
+    (spit host-path (with-out-str
+                      (println "[")
+                      (doseq [spec host-interop-tests]
+                        (clojure.pprint/pprint spec)
+                        (println))
+                      (println "]")))
+    (println (format "  wrote %s (%d categories)" host-path (count host-interop-tests)))
+
+    (spit scale-path (with-out-str
+                       (println "[")
+                       (doseq [spec scaling-tests]
+                         (clojure.pprint/pprint spec)
+                         (println))
+                       (println "]")))
+    (println (format "  wrote %s (%d categories)" scale-path (count scaling-tests)))))
 
 ;; =============================================================================
 ;; Coverage analysis — host.cljc vs JVM host surface
@@ -506,7 +936,6 @@
                         {:ns ns :var var})
 
         ;; Map JVM namespace → ported .cljc file(s)
-        ;; pcore.cljc + pmcore.cljc are the portable core (core.cljc is upstream JVM reference)
         ns-to-files {"clojure.core" ["pcore.cljc" "pmcore.cljc"]
                       "clojure.string" ["string.cljc"]
                       "clojure.set" ["set.cljc"]
@@ -719,12 +1148,19 @@
 (let [args *command-line-args*
       pairs (partition 2 1 args)
       write-dir    (some #(when (= "--write" (first %)) (second %)) pairs)
+      ;; --write takes two args: lang-dir contrib-dir
+      write-args   (when write-dir
+                     (let [idx (.indexOf (vec args) "--write")]
+                       (when (< (+ idx 2) (count args))
+                         [(nth args (+ idx 1)) (nth args (+ idx 2))])))
+      lang-dir     (first write-args)
+      contrib-dir  (second write-args)
       coverage-dir (some #(when (= "--coverage" (first %)) (second %)) pairs)
       host-data    (some #(when (= "--host-data" (first %)) (second %)) pairs)
       stats-only   (some #{"--stats"} args)
       ns-args (remove #(str/starts-with? % "--") args)
       ns-args (reduce (fn [a dir] (if dir (remove #{dir} a) a))
-                       ns-args [write-dir coverage-dir host-data])
+                       ns-args [lang-dir contrib-dir coverage-dir host-data])
       namespaces (if (seq ns-args) (vec ns-args) all-namespaces)]
   (cond
     coverage-dir
@@ -743,9 +1179,11 @@
           results (mapv process-namespace namespaces)]
       (cond
         stats-only  (print-stats results)
-        write-dir   (do (print-stats results)
-                        (println (format "\nWriting to %s:" write-dir))
-                        (write-specs results write-dir))
+        (and lang-dir contrib-dir)
+        (do (print-stats results)
+            (println (format "\nWriting lang specs to %s, contrib to %s:" lang-dir contrib-dir))
+            (write-specs results lang-dir contrib-dir)
+            (write-host-specs lang-dir))
         :else       (do (print-stats results)
                         (println "\n--- Generated Specs ---\n")
                         (print-spec results))))))

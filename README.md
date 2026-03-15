@@ -1,71 +1,66 @@
 # Parity
 
-Clojure compatibility testing and analysis toolkit. Measures how close an alternative Clojure implementation is to JVM Clojure — using the JVM itself as the spec.
+Clojure parity testing toolkit. Measures how close an alternative Clojure implementation is to JVM Clojure — using the JVM itself as the oracle.
 
-## What it does
+## How it works
 
-```
-DISCOVER    langmap (reflection) + depgraph (source analysis)
-              → What does Clojure need from the JVM?
+1. **Reflect** on live JVM namespaces to discover every public var, its arglists, and metadata
+2. **Generate** test expressions — parametric cross-products, edge cases, host interop, scaling
+3. **Capture** reference results by evaluating every expression on JVM Clojure
+4. **Test** an alternative implementation against the captured reference
 
-GENERATE    specgen (reflection) + hand-written specs
-              → Test expressions for every public var
+No hand-written expected values. The JVM is the spec.
 
-REWRITE     portabilize
-              → Mechanically rewrite JVM code to portable code
-
-TEST        expand → capture → test
-              → JVM is the oracle. Compare any impl against it.
-
-ANALYZE     tree + coverage
-              → What to implement next. What's been ported.
-```
-
-## Usage
-
-Everything runs through the `par` CLI:
+## Quick start
 
 ```bash
-# Generate specs by reflecting on JVM namespaces
-./par specgen
-
-# Expand parametric templates into concrete test expressions
-./par expand
-
-# Capture reference results from JVM Clojure
-./par capture
-
-# Test an alternative implementation against the reference
-./par test
-
-# Full pipeline: specgen → expand → capture → stats
+# Generate all specs (lang/ and contrib/)
 ./par full
 
-# Dependency analysis
-./par deps src/clojure/core.clj    # source dependency graph
-./par discover                      # JVM host contract via reflection
-./par tree                          # merged implementation roadmap
-
-# Rewrite JVM-specific source to portable Clojure
-./par port src/clojure/core.clj
-
-# Coverage analysis
-./par coverage
+# Or step by step:
+./par specgen                      # generate spec files
+./par expand                       # expand parametric templates → expressions.edn
+./par capture                      # eval on JVM → reference.edn
+./par test                         # compare target impl against reference
 ```
 
-## Components
+## Other tools
 
-| File | Purpose |
-|------|---------|
-| `parity.clj` | Test runner: expand, capture, test, stats |
-| `specgen.clj` | Auto-generate test specs via JVM reflection |
-| `depgraph.clj` | Source-level dependency graph (uses rewrite-clj) |
-| `langmap.clj` | JVM host contract discovery via reflection |
-| `tree.clj` | Merged dependency tree and implementation roadmap |
-| `portabilize.clj` | Mechanical JVM → portable Clojure rewriter |
-| `utils.clj` | Bracket checker, form printer |
-| `spec/` | Hand-written test specs for core namespaces |
-| `spec/gen/` | Auto-generated specs (~57 namespaces) |
+```bash
+./par discover                     # JVM host contract (reflection)
+./par deps <clojure-src>           # source dependency graph
+./par tree <clojure-src>           # merged dependency + implementation roadmap
+./par coverage <ported-dir> <src>  # host coverage analysis
+./par port <in.clj> [out.cljc]    # rewrite JVM → portable Clojure
+./par check <file...>              # bracket balance
+```
+
+## Layout
+
+```
+par                     CLI entry point (bash)
+deps.edn                Clojure project deps
+src/parity/             All Clojure source
+  specgen.clj           Spec generator (JVM reflection → .edn)
+  parity.clj            Test runner: expand, capture, test, stats
+  depgraph.clj          Source-level dependency graph
+  langmap.clj           JVM host contract discovery
+  tree.clj              Merged dependency tree + roadmap
+  portabilize.clj       JVM → portable rewriter
+  utils.clj             Bracket checker, form printer
+  color.clj             ANSI terminal helpers
+lang/                   Generated specs: Clojure runtime (shipped namespaces)
+contrib/                Generated specs: contrib libraries
+```
+
+## Spec format
+
+Specs are `.edn` files with two forms:
+
+- **Explicit tests**: `{:it "name" :eval "(expr)"}`
+- **Parametric tests**: `{:describe "fn" :params {:x [...]} :template "(fn %x)"}`
+
+Parametric tests expand to the cross-product of all param axes. Expected values come from JVM capture, not from the spec.
 
 ## Requirements
 

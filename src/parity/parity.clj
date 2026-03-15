@@ -28,15 +28,16 @@
          '[clojure.core.async :as async])
 
 (def base-dir (or (System/getProperty "parity.dir") "."))
-(def spec-dir (str base-dir "/spec"))
+(def spec-dirs [(str base-dir "/spec") (str base-dir "/lang") (str base-dir "/contrib")])
 (def results-dir (str base-dir "/results"))
 (def expressions-file (str results-dir "/expressions.edn"))
 (def reference-file (str results-dir "/reference.edn"))
 
 (defn spec-files
-  "Find all .edn files in the spec directory (recursive), sorted by name."
+  "Find all .edn files in spec/ and gen/ directories, sorted by name."
   []
-  (->> (file-seq (io/file spec-dir))
+  (->> spec-dirs
+       (mapcat #(file-seq (io/file %)))
        (filter #(and (.isFile %) (str/ends-with? (.getName %) ".edn")))
        (sort-by #(.getName %))
        (map #(.getPath %))))

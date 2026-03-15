@@ -13,46 +13,48 @@ shift 2>/dev/null || true
 
 run() { clojure -M "$@"; }
 
+S=src/parity
+
 case "$cmd" in
   # ── DISCOVER ──────────────────────────────────────────────────────────────
   discover|lang)
-    run langmap.clj "$@"
+    run $S/langmap.clj "$@"
     ;;
   deps|dep)
-    run depgraph.clj "$@"
+    run $S/depgraph.clj "$@"
     ;;
   host)
-    run depgraph.clj --host "$@"
+    run $S/depgraph.clj --host "$@"
     ;;
 
   # ── GENERATE ──────────────────────────────────────────────────────────────
   specgen|gen)
-    run specgen.clj "$@"
+    run $S/specgen.clj "$@"
     ;;
   port)
-    run portabilize.clj "$@"
+    run $S/portabilize.clj "$@"
     ;;
 
   # ── TEST ──────────────────────────────────────────────────────────────────
   expand)
-    run parity.clj expand "$@"
+    run $S/parity.clj expand "$@"
     ;;
   capture)
-    run parity.clj capture "$@"
+    run $S/parity.clj capture "$@"
     ;;
   test)
-    run parity.clj test "$@"
+    run $S/parity.clj test "$@"
     ;;
   stats)
-    run parity.clj stats "$@"
+    run $S/parity.clj stats "$@"
     ;;
 
   # ── UTIL ──────────────────────────────────────────────────────────────────
   check|br)
-    run utils.clj brackets "$@"
+    run $S/utils.clj brackets "$@"
     ;;
   forms)
-    run utils.clj forms "$@"
+    run $S/utils.clj forms "$@"
     ;;
 
   # ── ANALYZE ──────────────────────────────────────────────────────────────
@@ -61,32 +63,32 @@ case "$cmd" in
     shift
     tmp_graph=$(mktemp) tmp_host=$(mktemp)
     trap "rm -f $tmp_graph $tmp_host" EXIT
-    run depgraph.clj "$src" --edn > "$tmp_graph"
-    run langmap.clj --edn > "$tmp_host"
-    run tree.clj "$tmp_graph" "$tmp_host" "$@"
+    run $S/depgraph.clj "$src" --edn > "$tmp_graph"
+    run $S/langmap.clj --edn > "$tmp_host"
+    run $S/tree.clj "$tmp_graph" "$tmp_host" "$@"
     ;;
   coverage|cov)
     ported="${1:?usage: par coverage <ported-dir> <clojure-src>}"
     src="${2:?usage: par coverage <ported-dir> <clojure-src>}"
     tmp=$(mktemp)
     trap "rm -f $tmp" EXIT
-    run depgraph.clj "$src" --host-edn > "$tmp"
-    run specgen.clj --coverage "$ported" --host-data "$tmp"
+    run $S/depgraph.clj "$src" --host-edn > "$tmp"
+    run $S/specgen.clj --coverage "$ported" --host-data "$tmp"
     ;;
 
   # ── PIPELINE ──────────────────────────────────────────────────────────────
   full)
     echo "=== specgen ==="
-    run specgen.clj --write spec/gen/ "$@"
+    run $S/specgen.clj --write lang/ contrib/ "$@"
     echo ""
     echo "=== expand ==="
-    run parity.clj expand
+    run $S/parity.clj expand
     echo ""
     echo "=== capture ==="
-    run parity.clj capture
+    run $S/parity.clj capture
     echo ""
     echo "=== stats ==="
-    run parity.clj stats
+    run $S/parity.clj stats
     ;;
 
   # ── HELP ──────────────────────────────────────────────────────────────────
