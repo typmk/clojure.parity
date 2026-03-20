@@ -101,7 +101,7 @@
 
 (deftest gen-tests-predicate
   (let [tests (gen/gen-tests 'even? {:arglists '([n])} "clojure.core")]
-    (is (= 5 (count tests)) "predicates test 5 representative types")
+    (is (= 18 (count tests)) "predicates test 18 representative types")
     (is (every? #(re-find #"^\(even\?" (:eval %)) tests))))
 
 (deftest gen-tests-skips-untestable-tags
@@ -111,6 +111,63 @@
     (is (nil? tests) "should skip when arg has untestable tag")))
 
 ;; =============================================================================
+;; gen-tests — multi-arity
+;; =============================================================================
+
+(deftest gen-tests-multi-arity
+  (testing "functions with multiple arities generate tests for each"
+    (let [tests (gen/gen-tests 'get {:arglists '([map key] [map key not-found])} "clojure.core")
+          evals (set (map :eval tests))]
+      (is (some #(re-find #"^\(get \{" %) evals) "should have 2-arg test")
+      (is (some #(re-find #"^\(get \{.*\}.*:.*42" %) evals) "should have 3-arg test")
+      (is (> (count tests) 5) "should generate multiple variants per arity"))))
+
+(deftest gen-tests-varies-all-args
+  (testing "nil/empty variants generated for each arg position, not just first"
+    (let [tests (gen/gen-tests 'assoc {:arglists '([map key val])} "clojure.core")
+          evals (map :eval tests)]
+      (is (some #(re-find #"^\(assoc nil " %) evals) "should test nil in first position")
+      (is (some #(re-find #"^\(assoc \{\} " %) evals) "should test empty in first position"))))
+
+(deftest gen-tests-alt-values
+  (testing ":alts values generate extra tests per arg position"
+    (let [tests (gen/gen-tests 'assoc {:arglists '([map key val])} "clojure.core")
+          evals (set (map :eval tests))]
+      (is (> (count tests) 3) "should have more than just happy/nil/empty")
+      ;; Alt maps
+      (is (some #(re-find #"\{:a 1 :b 2\}" %) evals) "should test alt map value")
+      ;; Alt keys
+      (is (some #(re-find #":b " %) evals) "should test alt key value")
+      ;; Alt numbers
+      (is (some #(re-find #" -1\)" %) evals) "should test alt number value"))))
+
+(deftest gen-tests-nullary-plus-arity
+  (testing "functions with nullary + other arities get both"
+    (let [tests (gen/gen-tests 'concat {:arglists '([] [x] [x y] [x y & zs])} "clojure.core")
+          evals (set (map :eval tests))]
+      (is (contains? evals "(concat)") "should have nullary test")
+      (is (some #(re-find #"^\(concat \d" %) evals) "should have 1-arg test"))))
+
+;; =============================================================================
+;; safe-eval
+;; =============================================================================
+
+(deftest safe-eval-success
+  (let [r (gen/safe-eval "(+ 1 2)")]
+    (is (:result r))
+    (is (= "3" (:result r)))))
+
+(deftest safe-eval-error
+  (let [r (gen/safe-eval "(/ 1 0)")]
+    (is (:error r))
+    (is (string? (:error-class r)))))
+
+(deftest safe-eval-timeout
+  (binding [gen/*eval-timeout-ms* 100]
+    (let [r (gen/safe-eval "(loop [] (recur))")]
+      (is (= "TimeoutException" (:error-class r))))))
+
+;; =============================================================================
 ;; process-namespace
 ;; =============================================================================
 
@@ -118,4 +175,5 @@
   (let [result (gen/process-namespace "clojure.core")]
     (is (pos? (:total result)))
     (is (pos? (:generated result)))
+    (is (> (:generated result) 3000) "should generate 3000+ tests with multi-arity + alts")
     (is (zero? (count (filter :error [result]))))))

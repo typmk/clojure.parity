@@ -51,21 +51,33 @@
 ;; =============================================================================
 
 (def values
-  {:num     {:good "42"       :nil "nil"   :empty "0"}
-   :string  {:good "\"hello\"" :nil "nil"  :empty "\"\""}
-   :keyword {:good ":a"       :nil "nil"}
-   :symbol  {:good "'foo"     :nil "nil"}
-   :coll    {:good "[1 2 3]"  :nil "nil"   :empty "[]"}
-   :vec     {:good "[1 2 3]"  :nil "nil"   :empty "[]"}
-   :map     {:good "{:a 1}"   :nil "nil"   :empty "{}"}
-   :set     {:good "#{1 2 3}" :nil "nil"   :empty "#{}"}
-   :list    {:good "'(1 2 3)" :nil "nil"   :empty "'()"}
-   :fn      {:good "inc"}
-   :pred    {:good "even?"}
+  "Test values per type. :good is the primary, :alts are additional values to exercise,
+   :nil and :empty are boundary values for nilable types."
+  {:num     {:good "42"        :alts ["-1" "0" "1" "0.5"]
+             :nil "nil"        :empty "0"}
+   :string  {:good "\"hello\"" :alts ["\"\"" "\"a\"" "\"hello world\""]
+             :nil "nil"        :empty "\"\""}
+   :keyword {:good ":a"        :alts [":b" ":foo/bar"]
+             :nil "nil"}
+   :symbol  {:good "'foo"      :alts ["'bar" "'foo/baz"]
+             :nil "nil"}
+   :coll    {:good "[1 2 3]"   :alts ["'(1 2 3)" "[\"a\" :b 3]" "[[1] [2]]"]
+             :nil "nil"        :empty "[]"}
+   :vec     {:good "[1 2 3]"   :alts ["[0]" "[:a :b :c :d :e]"]
+             :nil "nil"        :empty "[]"}
+   :map     {:good "{:a 1}"    :alts ["{:a 1 :b 2}" "{0 \"x\" 1 \"y\"}"]
+             :nil "nil"        :empty "{}"}
+   :set     {:good "#{1 2 3}"  :alts ["#{:a :b}" "#{}"]
+             :nil "nil"        :empty "#{}"}
+   :list    {:good "'(1 2 3)"  :alts ["'()" "'(:a :b)"]
+             :nil "nil"        :empty "'()"}
+   :fn      {:good "inc"       :alts ["dec" "str" "identity"]}
+   :pred    {:good "even?"     :alts ["odd?" "nil?" "pos?"]}
    :regex   {:good "#\"\\\\d+\""}
-   :xf      {:good "(map inc)"}
-   :char    {:good "\\a"}
-   :any     {:good "42"       :nil "nil"   :empty "[]"}})
+   :xf      {:good "(map inc)" :alts ["(filter odd?)" "(take 2)"]}
+   :char    {:good "\\a"       :alts ["\\z" "\\space"]}
+   :any     {:good "42"        :alts [":a" "\"hello\"" "nil" "true" "false" "[1 2]" "{:a 1}"]
+             :nil "nil"        :empty "[]"}})
 
 (def tag->type
   "Map JVM type hints to our value types. nil = untestable (skip the var)."
@@ -245,7 +257,7 @@
       (nil? arglists)                 :skip
       (str/starts-with? nm "->")      :skip
       (str/starts-with? nm "map->")   :skip
-      (> (apply min (map #(count (take-while (fn [a] (not= '& a)) %)) arglists)) 4) :skip
+      (> (apply min (map #(count (take-while (fn [a] (not= '& a)) %)) arglists)) 6) :skip
       :else                           :testable)))
 
 ;; =============================================================================
@@ -257,22 +269,58 @@
   [arg]
   (cond (symbol? arg) (name arg) (vector? arg) "v" (map? arg) "m" :else "x"))
 
+(defn- make-test [sym qualified args]
+  {:it (str (name sym) " " (str/join " " args))
+   :eval (str "(" qualified " " (str/join " " args) ")")})
+
+(defn- gen-arity-tests
+  "Generate tests for a specific fixed-arg vector: happy path + nil/empty per arg position."
+  [sym qualified fixed-args ns-name]
+  (let [happy-args (mapv (fn [a] (:good (get values (effective-type a ns-name) (:any values)))) fixed-args)]
+    (reduce
+      (fn [acc i]
+        (let [typ (effective-type (nth fixed-args i) ns-name)
+              v (get values typ)]
+          (cond-> acc
+            (and (:nil v) (nilable-types typ))
+            (conj (make-test sym qualified (assoc happy-args i "nil")))
+            (and (:empty v) (nilable-types typ))
+            (conj (make-test sym qualified (assoc happy-args i (:empty v)))))))
+      [(make-test sym qualified happy-args)]
+      (range (count fixed-args)))))
+
+(defn- gen-alt-tests
+  "Generate tests using :alts values for each arg position (one alt at a time)."
+  [sym qualified fixed-args ns-name]
+  (let [happy-args (mapv (fn [a] (:good (get values (effective-type a ns-name) (:any values)))) fixed-args)]
+    (into []
+          (mapcat
+            (fn [i]
+              (let [typ (effective-type (nth fixed-args i) ns-name)
+                    alts (:alts (get values typ))]
+                (when alts
+                  (map (fn [alt] (make-test sym qualified (assoc happy-args i alt))) alts)))))
+          (range (count fixed-args)))))
+
 (defn gen-tests
-  "Generate tests for a single var. Returns seq of {:it :eval} maps."
+  "Generate tests for a single var. Returns seq of {:it :eval} maps.
+   Tests each distinct arity, with nil/empty/alts per arg position."
   [sym var-meta ns-name]
   (let [arglists (:arglists var-meta)
         qualified (if (= ns-name "clojure.core") (name sym) (str ns-name "/" (name sym)))
-        ;; Pick shortest non-zero arity
-        sorted (sort-by count arglists)
-        best-arity (or (first (filter #(pos? (count %)) sorted)) (first sorted))
-        fixed-args (vec (take-while #(not= '& %) best-arity))
-        arity (count fixed-args)
         has-nullary? (some #(zero? (count %)) arglists)
-        is-pred? (and (str/ends-with? (name sym) "?") (= 1 arity))
-        ;; Check tags — if any arg has an untestable type, skip the whole function
-        arg-tags (mapv tag-type fixed-args)
-        has-skip-tag? (some #{:skip} arg-tags)]
-    (when-not has-skip-tag?
+        testable-arities (->> arglists
+                              (map (fn [al] (vec (take-while #(not= '& %) al))))
+                              (filter #(<= 1 (count %) 6))
+                              (remove (fn [args] (some #{:skip} (mapv tag-type args))))
+                              (reduce (fn [acc args]
+                                        (if (some #(= (count %) (count args)) acc)
+                                          acc (conj acc args)))
+                                      []))
+        best-arity (first testable-arities)
+        arity (if best-arity (count best-arity) 0)
+        is-pred? (and (str/ends-with? (name sym) "?") (= 1 arity))]
+    (when (or has-nullary? (seq testable-arities) is-pred?)
       (cond->
         []
         ;; Nullary
@@ -281,31 +329,17 @@
 
         ;; Predicate: test against representative types
         is-pred?
-        (into (for [v ["nil" "true" "42" "\"hello\"" "[1 2]"]]
+        (into (for [v ["nil" "true" "false" "0" "42" "-1" "0.5"
+                       "\"\"" "\"hello\"" ":a" "'foo"
+                       "[]" "[1 2]" "{}" "{:a 1}" "#{}" "#{1}" "'()"]]
                 {:it (str (name sym) " " v) :eval (str "(" qualified " " v ")")}))
 
-        ;; Normal function: happy path + nil + empty per arg
-        (and (not is-pred?) (pos? arity) (<= arity 4))
-        (into
-          (let [arg-test-sets (mapv #(test-values-for % ns-name) fixed-args)]
-            ;; Happy path: first (good) value for each arg
-            (let [happy-args (mapv #(:val (first %)) arg-test-sets)
-                  happy-label (str (name sym) " " (str/join " " happy-args))]
-              (cond-> [{:it happy-label
-                        :eval (str "(" qualified " " (str/join " " happy-args) ")")}]
-                ;; Nil test: first arg = nil, rest = good (only for nilable types)
-                (let [first-type (effective-type (first fixed-args) ns-name)]
-                  (and (> arity 0) (:nil (get values first-type)) (nilable-types first-type)))
-                (conj (let [args (assoc happy-args 0 "nil")]
-                        {:it (str (name sym) " nil " (str/join " " (rest args)))
-                         :eval (str "(" qualified " " (str/join " " args) ")")}))
-                ;; Empty test: first arg = empty, rest = good (only for nilable types)
-                (let [first-type (effective-type (first fixed-args) ns-name)]
-                  (and (> arity 0) (:empty (get values first-type)) (nilable-types first-type)))
-                (conj (let [empty-val (:empty (get values (effective-type (first fixed-args) ns-name)))
-                            args (assoc happy-args 0 empty-val)]
-                        {:it (str (name sym) " " empty-val " " (str/join " " (rest args)))
-                         :eval (str "(" qualified " " (str/join " " args) ")")}))))))))))
+        ;; Normal function: test each arity with happy/nil/empty/alts per position
+        (and (not is-pred?) (seq testable-arities))
+        (into (mapcat (fn [args]
+                        (concat (gen-arity-tests sym qualified args ns-name)
+                                (gen-alt-tests sym qualified args ns-name)))
+                      testable-arities))))))
 
 
 ;; =============================================================================
@@ -419,7 +453,11 @@
     (.start t)
     (let [r (deref result *eval-timeout-ms* ::timeout)]
       (if (= r ::timeout)
-        (do (.interrupt t) {:error "TimeoutException" :error-class "TimeoutException"})
+        (do (.interrupt t)
+            ;; Wait briefly for interrupt to take effect, then abandon
+            (when (.isAlive t)
+              (Thread/sleep 50))
+            {:error "TimeoutException" :error-class "TimeoutException"})
         r))))
 
 (defn do-capture
