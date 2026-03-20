@@ -101,8 +101,8 @@
 
 (deftest gen-tests-predicate
   (let [tests (gen/gen-tests 'even? {:arglists '([n])} "clojure.core")]
-    (is (= 18 (count tests)) "predicates test 18 representative types")
-    (is (every? #(re-find #"^\(even\?" (:eval %)) tests))))
+    (is (>= (count tests) 18) "predicates test at least 18 types (more with spec)")
+    (is (every? #(re-find #"even\?" (:eval %)) tests))))
 
 (deftest gen-tests-skips-untestable-tags
   (let [tests (gen/gen-tests 'foo

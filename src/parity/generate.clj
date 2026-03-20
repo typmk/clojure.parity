@@ -2,7 +2,8 @@
   "Reflect on JVM, generate tests, capture reference, emit cljc."
   (:require [clojure.string :as str]
             [clojure.java.io :as io]
-            [clojure.edn :as edn]))
+            [clojure.edn :as edn]
+            [parity.specs :as specs]))
 
 ;; Load all namespaces for reflection
 (def shipped-namespaces
@@ -339,7 +340,22 @@
         (into (mapcat (fn [args]
                         (concat (gen-arity-tests sym qualified args ns-name)
                                 (gen-alt-tests sym qualified args ns-name)))
-                      testable-arities))))))
+                      testable-arities))
+
+        ;; Spec-generated tests (if fdef exists, add diverse inputs)
+        (try
+          (specs/spec-available? (symbol ns-name (name sym)))
+          (catch Exception _ false))
+        (into (try
+                (let [fq (symbol ns-name (name sym))
+                      samples (specs/gen-from-spec fq :n 10)]
+                  (when samples
+                    (->> samples
+                         (map (fn [args] (specs/args->expr-str fq args)))
+                         distinct
+                         (map (fn [expr] {:it (str (name sym) " [spec]")
+                                          :eval expr})))))
+                (catch Exception _ nil)))))))
 
 
 ;; =============================================================================
@@ -354,7 +370,11 @@
     (let [publics (sort-by key (ns-publics (symbol ns-name)))
           tests (vec (mapcat (fn [[sym v]]
                                (when (= :testable (classify-var sym (meta v)))
-                                 (gen-tests sym (meta v) ns-name)))
+                                 (try (gen-tests sym (meta v) ns-name)
+                                      (catch Exception e
+                                        (binding [*out* *err*]
+                                          (println (str "WARNING: gen-tests failed for " sym ": " (.getMessage e))))
+                                        nil))))
                              publics))]
       {:ns ns-name :total (count publics) :tests tests
        :generated (count tests) :skipped (- (count publics) (count (filter #(= :testable (classify-var (key %) (meta (val %)))) publics)))})
